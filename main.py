@@ -5,6 +5,8 @@ Serves the mobile PWA and REST API.
 from dotenv import load_dotenv
 load_dotenv(override=True)
 
+import csv
+import io
 import json
 import os
 import shutil
@@ -12,10 +14,14 @@ import uuid
 from datetime import datetime
 
 import aiofiles
+import cloudinary
+import cloudinary.uploader
 from fastapi import BackgroundTasks, FastAPI, File, HTTPException, Query, UploadFile
+from fastapi.responses import StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
+from PIL import Image
 from sqlalchemy import or_
 
 from card_analyzer import analyze_card
@@ -38,14 +44,24 @@ os.makedirs(UPLOAD_DIR, exist_ok=True)
 
 STATIC_DIR = os.path.join(os.path.dirname(__file__), "static")
 
+# Cloudinary config (optional — falls back to local storage if not set)
+USE_CLOUDINARY = bool(os.getenv("CLOUDINARY_CLOUD_NAME"))
+if USE_CLOUDINARY:
+    cloudinary.config(
+        cloud_name=os.getenv("CLOUDINARY_CLOUD_NAME"),
+        api_key=os.getenv("CLOUDINARY_API_KEY"),
+        api_secret=os.getenv("CLOUDINARY_API_SECRET"),
+    )
+
 
 @app.on_event("startup")
 def startup():
     init_db()
 
 
-# Serve card images
-app.mount("/uploads", StaticFiles(directory=UPLOAD_DIR), name="uploads")
+# Serve card images (local mode only — Cloudinary serves its own URLs)
+if not USE_CLOUDINARY:
+    app.mount("/uploads", StaticFiles(directory=UPLOAD_DIR), name="uploads")
 # Serve PWA static files
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
@@ -65,11 +81,14 @@ def scanner():
 # ── Helper ───────────────────────────────────────────────────────────────────
 
 def card_to_dict(card: Card) -> dict:
+    # If paths are URLs (Cloudinary), use them directly; otherwise build local URLs
+    front_url = card.front_image_path if card.front_image_path and card.front_image_path.startswith("http") else f"/uploads/{card.id}/front.jpg"
+    back_url = card.back_image_path if card.back_image_path and card.back_image_path.startswith("http") else f"/uploads/{card.id}/back.jpg"
     return {
         "id": card.id,
         "created_at": card.created_at.isoformat() if card.created_at else None,
-        "front_image_url": f"/uploads/{card.id}/front.jpg",
-        "back_image_url": f"/uploads/{card.id}/back.jpg",
+        "front_image_url": front_url,
+        "back_image_url": back_url,
         "status": card.status,
         # Identity
         "player_name": card.player_name,
@@ -193,6 +212,19 @@ def refresh_pricing(card_id: str):
 
 # ── API Routes ───────────────────────────────────────────────────────────────
 
+def _resize_image_bytes(raw_bytes: bytes) -> bytes:
+    """Resize image to max 2000px and convert to JPEG."""
+    img = Image.open(io.BytesIO(raw_bytes)).convert("RGB")
+    max_dim = 2000
+    w, h = img.size
+    if max(w, h) > max_dim:
+        scale = max_dim / max(w, h)
+        img = img.resize((int(w * scale), int(h * scale)), Image.LANCZOS)
+    buf = io.BytesIO()
+    img.save(buf, format="JPEG", quality=85)
+    return buf.getvalue()
+
+
 @app.post("/api/cards/upload")
 async def upload_card(
     background_tasks: BackgroundTasks,
@@ -201,16 +233,32 @@ async def upload_card(
 ):
     """Receive front + back images from the mobile scanner."""
     card_id = str(uuid.uuid4())
-    card_dir = os.path.join(UPLOAD_DIR, card_id)
-    os.makedirs(card_dir, exist_ok=True)
 
-    front_path = os.path.join(card_dir, "front.jpg")
-    back_path = os.path.join(card_dir, "back.jpg")
+    front_bytes = _resize_image_bytes(await front_image.read())
+    back_bytes = _resize_image_bytes(await back_image.read())
 
-    async with aiofiles.open(front_path, "wb") as f:
-        await f.write(await front_image.read())
-    async with aiofiles.open(back_path, "wb") as f:
-        await f.write(await back_image.read())
+    if USE_CLOUDINARY:
+        # Upload to Cloudinary
+        front_result = cloudinary.uploader.upload(
+            front_bytes, folder=f"cards/{card_id}", public_id="front",
+            resource_type="image",
+        )
+        back_result = cloudinary.uploader.upload(
+            back_bytes, folder=f"cards/{card_id}", public_id="back",
+            resource_type="image",
+        )
+        front_path = front_result["secure_url"]
+        back_path = back_result["secure_url"]
+    else:
+        # Save locally
+        card_dir = os.path.join(UPLOAD_DIR, card_id)
+        os.makedirs(card_dir, exist_ok=True)
+        front_path = os.path.join(card_dir, "front.jpg")
+        back_path = os.path.join(card_dir, "back.jpg")
+        async with aiofiles.open(front_path, "wb") as f:
+            await f.write(front_bytes)
+        async with aiofiles.open(back_path, "wb") as f:
+            await f.write(back_bytes)
 
     db = SessionLocal()
     card = Card(
@@ -329,12 +377,63 @@ def delete_card(card_id: str):
         card = db.get(Card, card_id)
         if not card:
             raise HTTPException(status_code=404, detail="Card not found")
-        card_dir = os.path.join(UPLOAD_DIR, card_id)
-        if os.path.exists(card_dir):
-            shutil.rmtree(card_dir)
+        if USE_CLOUDINARY:
+            try:
+                cloudinary.uploader.destroy(f"cards/{card_id}/front")
+                cloudinary.uploader.destroy(f"cards/{card_id}/back")
+            except Exception:
+                pass  # Non-fatal if Cloudinary cleanup fails
+        else:
+            card_dir = os.path.join(UPLOAD_DIR, card_id)
+            if os.path.exists(card_dir):
+                shutil.rmtree(card_dir)
         db.delete(card)
         db.commit()
         return {"status": "deleted"}
+    finally:
+        db.close()
+
+
+@app.get("/api/export/csv")
+def export_csv():
+    """Download all cards as a CSV spreadsheet."""
+    db = SessionLocal()
+    try:
+        cards = db.query(Card).order_by(Card.created_at.desc()).all()
+        output = io.StringIO()
+        writer = csv.writer(output)
+
+        # Header row
+        writer.writerow([
+            "ID", "Date Added", "Status", "Player", "Year", "Brand", "Set",
+            "Subset", "Card #", "Team", "Sport", "Rookie", "Parallel",
+            "Parallel Name", "Foil", "Autograph", "Relic", "Relic Type",
+            "Numbered", "Print Run", "Serial #", "Alt Jersey",
+            "Jersey Desc", "Short Print", "Condition", "Notable Features",
+            "Description", "Est. Price", "eBay Avg", "eBay Low", "eBay High",
+            "eBay # Sales", "eBay Last Checked", "Notes",
+        ])
+
+        for c in cards:
+            writer.writerow([
+                c.id, c.created_at, c.status, c.player_name, c.year,
+                c.brand, c.set_name, c.subset, c.card_number, c.team,
+                c.sport, c.is_rookie_card, c.is_parallel, c.parallel_name,
+                c.is_foil, c.is_autograph, c.is_relic, c.relic_type,
+                c.is_numbered, c.print_run, c.serial_number,
+                c.has_alternate_jersey, c.jersey_description,
+                c.is_short_print, c.condition, c.notable_features,
+                c.description, c.estimated_price, c.ebay_avg_sale,
+                c.ebay_low, c.ebay_high, c.ebay_num_sales,
+                c.ebay_last_checked, c.notes,
+            ])
+
+        output.seek(0)
+        return StreamingResponse(
+            iter([output.getvalue()]),
+            media_type="text/csv",
+            headers={"Content-Disposition": "attachment; filename=sports_cards_inventory.csv"},
+        )
     finally:
         db.close()
 

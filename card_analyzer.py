@@ -70,9 +70,25 @@ def _clean_json(text: str) -> str:
     return text
 
 
+def _make_image_content(path_or_url: str) -> dict:
+    """Build a Claude image content block from a local path or URL."""
+    if path_or_url.startswith("http://") or path_or_url.startswith("https://"):
+        return {
+            "type": "image",
+            "source": {"type": "url", "url": path_or_url},
+        }
+    else:
+        b64, media_type = _load_image_b64(path_or_url)
+        return {
+            "type": "image",
+            "source": {"type": "base64", "media_type": media_type, "data": b64},
+        }
+
+
 def analyze_card(front_path: str, back_path: str, retries: int = 3) -> dict:
     """
     Analyze a card's front and back images with Claude Vision.
+    Accepts local file paths or URLs (e.g. Cloudinary).
     Returns a dict of card metadata.
     """
     api_key = os.getenv("ANTHROPIC_API_KEY")
@@ -82,8 +98,8 @@ def analyze_card(front_path: str, back_path: str, retries: int = 3) -> dict:
 
     client = anthropic.Anthropic(api_key=api_key)
 
-    front_b64, front_type = _load_image_b64(front_path)
-    back_b64, back_type = _load_image_b64(back_path)
+    front_content = _make_image_content(front_path)
+    back_content = _make_image_content(back_path)
 
     for attempt in range(retries):
         try:
@@ -94,22 +110,8 @@ def analyze_card(front_path: str, back_path: str, retries: int = 3) -> dict:
                     "role": "user",
                     "content": [
                         {"type": "text", "text": ANALYSIS_PROMPT},
-                        {
-                            "type": "image",
-                            "source": {
-                                "type": "base64",
-                                "media_type": front_type,
-                                "data": front_b64,
-                            },
-                        },
-                        {
-                            "type": "image",
-                            "source": {
-                                "type": "base64",
-                                "media_type": back_type,
-                                "data": back_b64,
-                            },
-                        },
+                        front_content,
+                        back_content,
                     ],
                 }],
             )
