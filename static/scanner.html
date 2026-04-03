@@ -42,11 +42,59 @@
   <!-- Main content area -->
   <div class="flex-1 px-5 pb-8" id="main-content"></div>
 
-  <!-- Hidden file inputs: camera-specific and file-picker -->
+  <!-- Hidden file inputs: file-picker fallback -->
   <input type="file" id="front-camera"  accept="image/*" capture="environment" class="hidden">
   <input type="file" id="front-file"    accept="image/*" class="hidden">
   <input type="file" id="back-camera"   accept="image/*" capture="environment" class="hidden">
   <input type="file" id="back-file"     accept="image/*" class="hidden">
+
+  <!-- Live Camera Scanner Overlay -->
+  <div id="camera-overlay" class="fixed inset-0 z-50 bg-black hidden flex flex-col">
+    <video id="camera-video" autoplay playsinline muted class="absolute inset-0 w-full h-full object-cover"></video>
+
+    <!-- Card guide frame with darkened surroundings -->
+    <div class="absolute inset-0 pointer-events-none" id="guide-overlay">
+      <svg class="w-full h-full" preserveAspectRatio="none">
+        <defs>
+          <mask id="guide-mask">
+            <rect width="100%" height="100%" fill="white"/>
+            <rect id="guide-rect" x="15%" y="15%" width="70%" height="60%" rx="12" fill="black"/>
+          </mask>
+        </defs>
+        <rect width="100%" height="100%" fill="rgba(0,0,0,0.6)" mask="url(#guide-mask)"/>
+      </svg>
+      <!-- Guide border -->
+      <div class="absolute border-2 border-white/70 rounded-xl"
+           style="left:15%;top:15%;width:70%;height:60%;">
+        <!-- Corner markers -->
+        <div class="absolute -top-0.5 -left-0.5 w-6 h-6 border-t-3 border-l-3 border-white rounded-tl-lg"></div>
+        <div class="absolute -top-0.5 -right-0.5 w-6 h-6 border-t-3 border-r-3 border-white rounded-tr-lg"></div>
+        <div class="absolute -bottom-0.5 -left-0.5 w-6 h-6 border-b-3 border-l-3 border-white rounded-bl-lg"></div>
+        <div class="absolute -bottom-0.5 -right-0.5 w-6 h-6 border-b-3 border-r-3 border-white rounded-br-lg"></div>
+      </div>
+    </div>
+
+    <!-- Label -->
+    <div class="absolute top-6 left-0 right-0 text-center z-10">
+      <span id="camera-label" class="bg-black/60 text-white text-sm font-semibold px-4 py-2 rounded-full">
+        Position card front inside the frame
+      </span>
+    </div>
+
+    <!-- Controls -->
+    <div class="absolute bottom-0 left-0 right-0 z-10 flex items-center justify-center gap-8 pb-10">
+      <button onclick="closeCamera()" class="w-12 h-12 rounded-full bg-white/20 flex items-center justify-center">
+        <span class="text-white text-2xl">&times;</span>
+      </button>
+      <button onclick="captureFromCamera()" id="capture-btn"
+        class="w-20 h-20 rounded-full bg-white flex items-center justify-center shadow-xl active:scale-95 transition-transform">
+        <div class="w-16 h-16 rounded-full border-4 border-slate-900"></div>
+      </button>
+      <button onclick="flipCamera()" id="flip-btn" class="w-12 h-12 rounded-full bg-white/20 flex items-center justify-center">
+        <span class="text-white text-lg">🔄</span>
+      </button>
+    </div>
+  </div>
 
   <script>
     const API_BASE = window.location.origin;
@@ -56,6 +104,86 @@
     let frontFile = null;
     let backFile  = null;
     let resultCardId = null;
+
+    // ── Live Camera Scanner ──────────────────────────────────────────────────
+
+    let cameraStream = null;
+    let cameraSide = null;  // 'front' or 'back'
+    let facingMode = 'environment';
+
+    async function openCamera(side) {
+      cameraSide = side;
+      const video = document.getElementById('camera-video');
+      const overlay = document.getElementById('camera-overlay');
+      const label = document.getElementById('camera-label');
+      label.textContent = `Position card ${side} inside the frame`;
+
+      try {
+        if (cameraStream) cameraStream.getTracks().forEach(t => t.stop());
+        cameraStream = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode, width: { ideal: 1920 }, height: { ideal: 1080 } }
+        });
+        video.srcObject = cameraStream;
+        overlay.classList.remove('hidden');
+      } catch (err) {
+        // Camera not available — fall back to file input
+        document.getElementById(side + '-camera').click();
+      }
+    }
+
+    async function flipCamera() {
+      facingMode = facingMode === 'environment' ? 'user' : 'environment';
+      if (cameraStream) {
+        cameraStream.getTracks().forEach(t => t.stop());
+        const video = document.getElementById('camera-video');
+        cameraStream = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode, width: { ideal: 1920 }, height: { ideal: 1080 } }
+        });
+        video.srcObject = cameraStream;
+      }
+    }
+
+    function captureFromCamera() {
+      const video = document.getElementById('camera-video');
+      const fullCanvas = document.createElement('canvas');
+      fullCanvas.width = video.videoWidth;
+      fullCanvas.height = video.videoHeight;
+      const ctx = fullCanvas.getContext('2d');
+      ctx.drawImage(video, 0, 0);
+
+      // Crop to the guide area (matches the CSS: 15% inset, 70% wide, 60% tall)
+      const cropX = Math.round(video.videoWidth * 0.15);
+      const cropY = Math.round(video.videoHeight * 0.15);
+      const cropW = Math.round(video.videoWidth * 0.70);
+      const cropH = Math.round(video.videoHeight * 0.60);
+
+      const cropCanvas = document.createElement('canvas');
+      cropCanvas.width = cropW;
+      cropCanvas.height = cropH;
+      const cropCtx = cropCanvas.getContext('2d');
+      cropCtx.drawImage(fullCanvas, cropX, cropY, cropW, cropH, 0, 0, cropW, cropH);
+
+      cropCanvas.toBlob(blob => {
+        const file = new File([blob], cameraSide + '.jpg', { type: 'image/jpeg' });
+        if (cameraSide === 'front') {
+          frontFile = file;
+          state = 'front-captured';
+        } else {
+          backFile = file;
+          state = 'back-captured';
+        }
+        closeCamera();
+        render();
+      }, 'image/jpeg', 0.92);
+    }
+
+    function closeCamera() {
+      if (cameraStream) {
+        cameraStream.getTracks().forEach(t => t.stop());
+        cameraStream = null;
+      }
+      document.getElementById('camera-overlay').classList.add('hidden');
+    }
 
     // ── State helpers ────────────────────────────────────────────────────────
 
@@ -73,19 +201,29 @@
       if (isMobile) {
         return `
           <div class="flex gap-3 w-full">
+            <div class="source-btn" onclick="openCamera('${side}')">
+              <span class="text-3xl">📸</span>
+              <span class="text-sm font-medium">Scan Card</span>
+              <span class="text-[10px] text-slate-400">Live camera</span>
+            </div>
             <div class="source-btn" onclick="document.getElementById('${side}-camera').click()">
               <span class="text-3xl">📷</span>
               <span class="text-sm font-medium">Take Photo</span>
             </div>
             <div class="source-btn" onclick="document.getElementById('${side}-file').click()">
               <span class="text-3xl">🖼️</span>
-              <span class="text-sm font-medium">Photo Library</span>
+              <span class="text-sm font-medium">Library</span>
             </div>
           </div>`;
       } else {
         return `
           <div class="flex gap-3 w-full">
-            <div class="source-btn" onclick="document.getElementById('${side}-file').click()" style="flex:1">
+            <div class="source-btn" onclick="openCamera('${side}')">
+              <span class="text-3xl">📸</span>
+              <span class="text-sm font-medium">Scan with Webcam</span>
+              <span class="text-[10px] text-slate-400">Live camera</span>
+            </div>
+            <div class="source-btn" onclick="document.getElementById('${side}-file').click()">
               <span class="text-3xl">📁</span>
               <span class="text-sm font-medium">Choose from Files</span>
             </div>

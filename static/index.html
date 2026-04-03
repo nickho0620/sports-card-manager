@@ -269,8 +269,6 @@
         </div>
         <p class="text-slate-500 text-xs mb-5 text-center">Hover/tap an image to replace it</p>
 
-        ${card.description ? `<p class="text-slate-300 text-sm italic mb-5 bg-slate-700/50 rounded-xl p-3">${card.description}</p>` : ''}
-
         <!-- Editable Card Details -->
         <div class="flex items-center justify-between mb-2">
           <h3 class="font-semibold text-slate-300 text-xs uppercase tracking-widest">Card Details</h3>
@@ -296,6 +294,12 @@
           ${editToggle('Alternate Jersey', 'has_alternate_jersey', card.has_alternate_jersey, 'jersey_description', card.jersey_description)}
           ${editToggle('Short Print', 'is_short_print', card.is_short_print)}
           ${editField('Notable Features', 'notable_features', card.notable_features, 'Error card, SSP...')}
+          <div class="py-1.5 border-b border-slate-700 text-sm">
+            <span class="text-slate-400">Description</span>
+            <textarea data-field="description"
+              class="edit-field w-full mt-1 bg-slate-700/50 border border-slate-600 rounded-lg px-2 py-1 text-sm outline-none focus:border-blue-500 resize-none transition-colors"
+              rows="2" placeholder="Brief card description...">${card.description || ''}</textarea>
+          </div>
         </div>
 
         <!-- Pricing -->
