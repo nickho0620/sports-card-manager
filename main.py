@@ -225,57 +225,6 @@ def _resize_image_bytes(raw_bytes: bytes) -> bytes:
     return buf.getvalue()
 
 
-@app.post("/api/cards/upload")
-async def upload_card(
-    background_tasks: BackgroundTasks,
-    front_image: UploadFile = File(...),
-    back_image: UploadFile = File(...),
-):
-    """Receive front + back images from the mobile scanner."""
-    card_id = str(uuid.uuid4())
-
-    front_bytes = _resize_image_bytes(await front_image.read())
-    back_bytes = _resize_image_bytes(await back_image.read())
-
-    if USE_CLOUDINARY:
-        # Upload to Cloudinary
-        front_result = cloudinary.uploader.upload(
-            front_bytes, folder=f"cards/{card_id}", public_id="front",
-            resource_type="image",
-        )
-        back_result = cloudinary.uploader.upload(
-            back_bytes, folder=f"cards/{card_id}", public_id="back",
-            resource_type="image",
-        )
-        front_path = front_result["secure_url"]
-        back_path = back_result["secure_url"]
-    else:
-        # Save locally
-        card_dir = os.path.join(UPLOAD_DIR, card_id)
-        os.makedirs(card_dir, exist_ok=True)
-        front_path = os.path.join(card_dir, "front.jpg")
-        back_path = os.path.join(card_dir, "back.jpg")
-        async with aiofiles.open(front_path, "wb") as f:
-            await f.write(front_bytes)
-        async with aiofiles.open(back_path, "wb") as f:
-            await f.write(back_bytes)
-
-    db = SessionLocal()
-    card = Card(
-        id=card_id,
-        front_image_path=front_path,
-        back_image_path=back_path,
-        status="pending",
-    )
-    db.add(card)
-    db.commit()
-    db.close()
-
-    background_tasks.add_task(process_card, card_id)
-
-    return {"card_id": card_id, "status": "pending"}
-
-
 @app.get("/api/cards")
 def list_cards(
     search: str = Query(default=""),
@@ -334,12 +283,127 @@ def get_card(card_id: str):
         db.close()
 
 
+@app.post("/api/cards/{card_id}/image/{side}")
+async def update_card_image(
+    card_id: str,
+    side: str,
+    background_tasks: BackgroundTasks,
+    image: UploadFile = File(...),
+    reanalyze: bool = Query(default=False),
+):
+    """Replace front or back image for an existing card."""
+    if side not in ("front", "back"):
+        raise HTTPException(status_code=400, detail="Side must be 'front' or 'back'")
+
+    db = SessionLocal()
+    try:
+        card = db.get(Card, card_id)
+        if not card:
+            raise HTTPException(status_code=404, detail="Card not found")
+
+        img_bytes = _resize_image_bytes(await image.read())
+
+        if USE_CLOUDINARY:
+            result = cloudinary.uploader.upload(
+                img_bytes, folder=f"cards/{card_id}", public_id=side,
+                resource_type="image", overwrite=True,
+            )
+            path = result["secure_url"]
+        else:
+            card_dir = os.path.join(UPLOAD_DIR, card_id)
+            os.makedirs(card_dir, exist_ok=True)
+            path = os.path.join(card_dir, f"{side}.jpg")
+            async with aiofiles.open(path, "wb") as f:
+                await f.write(img_bytes)
+
+        if side == "front":
+            card.front_image_path = path
+        else:
+            card.back_image_path = path
+        db.commit()
+
+        if reanalyze and card.front_image_path and card.back_image_path:
+            background_tasks.add_task(process_card, card_id)
+
+        return card_to_dict(card)
+    finally:
+        db.close()
+
+
+@app.post("/api/cards/upload")
+async def upload_card(
+    background_tasks: BackgroundTasks,
+    front_image: UploadFile = File(None),
+    back_image: UploadFile = File(None),
+):
+    """Receive front and/or back images. At least one required."""
+    if not front_image and not back_image:
+        raise HTTPException(status_code=400, detail="At least one image is required")
+
+    card_id = str(uuid.uuid4())
+    front_path = None
+    back_path = None
+
+    if front_image:
+        front_bytes = _resize_image_bytes(await front_image.read())
+        if USE_CLOUDINARY:
+            result = cloudinary.uploader.upload(
+                front_bytes, folder=f"cards/{card_id}", public_id="front",
+                resource_type="image",
+            )
+            front_path = result["secure_url"]
+        else:
+            card_dir = os.path.join(UPLOAD_DIR, card_id)
+            os.makedirs(card_dir, exist_ok=True)
+            fp = os.path.join(card_dir, "front.jpg")
+            async with aiofiles.open(fp, "wb") as f:
+                await f.write(front_bytes)
+            front_path = fp
+
+    if back_image:
+        back_bytes = _resize_image_bytes(await back_image.read())
+        if USE_CLOUDINARY:
+            result = cloudinary.uploader.upload(
+                back_bytes, folder=f"cards/{card_id}", public_id="back",
+                resource_type="image",
+            )
+            back_path = result["secure_url"]
+        else:
+            card_dir = os.path.join(UPLOAD_DIR, card_id)
+            os.makedirs(card_dir, exist_ok=True)
+            bp = os.path.join(card_dir, "back.jpg")
+            async with aiofiles.open(bp, "wb") as f:
+                await f.write(back_bytes)
+            back_path = bp
+
+    db = SessionLocal()
+    card = Card(
+        id=card_id,
+        front_image_path=front_path,
+        back_image_path=back_path,
+        status="pending",
+    )
+    db.add(card)
+    db.commit()
+    db.close()
+
+    # Only auto-analyze if both images are present
+    if front_path and back_path:
+        background_tasks.add_task(process_card, card_id)
+
+    return {"card_id": card_id, "status": "pending"}
+
+
 @app.patch("/api/cards/{card_id}")
 def update_card(card_id: str, body: dict):
-    """Update user-editable fields: notes, condition, estimated_price, player_name, etc."""
+    """Update any card field. Supports all detail fields + notes."""
     allowed = {
         "notes", "condition", "estimated_price", "player_name", "year",
-        "brand", "set_name", "team", "description",
+        "brand", "set_name", "team", "description", "subset", "card_number",
+        "sport", "is_rookie_card", "is_parallel", "parallel_name", "is_foil",
+        "is_autograph", "is_relic", "relic_type", "is_numbered", "print_run",
+        "serial_number", "has_alternate_jersey", "jersey_description",
+        "is_short_print", "notable_features",
     }
     db = SessionLocal()
     try:

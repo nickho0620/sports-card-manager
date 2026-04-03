@@ -89,6 +89,10 @@
     <div class="modal-box p-6" id="modal-content"></div>
   </div>
 
+  <!-- Hidden file inputs for image replacement -->
+  <input type="file" id="replace-front-input" accept="image/*" class="hidden">
+  <input type="file" id="replace-back-input"  accept="image/*" class="hidden">
+
   <script>
     let allCards = [];
     let currentFilter = '';
@@ -180,7 +184,10 @@
 
     // ── Detail Modal ─────────────────────────────────────────────────────────
 
+    let currentModalCardId = null;
+
     async function openModal(id) {
+      currentModalCardId = id;
       const res = await fetch('/api/cards/' + id);
       const card = await res.json();
       const modal = document.getElementById('modal');
@@ -193,54 +200,102 @@
            </div>`
         : '';
 
-      const boolRow = (label, val, extra='') => val
-        ? `<div class="flex justify-between py-1.5 border-b border-slate-700 text-sm">
-             <span class="text-slate-400">${label}</span>
-             <span class="text-green-400 font-semibold">Yes${extra ? ' — ' + extra : ''}</span>
-           </div>`
-        : '';
+      // Editable text field
+      const editField = (label, field, value, placeholder='') =>
+        `<div class="flex items-center justify-between py-1.5 border-b border-slate-700 text-sm gap-3">
+           <span class="text-slate-400 whitespace-nowrap">${label}</span>
+           <input type="text" data-field="${field}" value="${value || ''}" placeholder="${placeholder}"
+             class="edit-field bg-slate-700/50 border border-slate-600 rounded-lg px-2 py-1 text-sm text-right outline-none focus:border-blue-500 w-40 transition-colors">
+         </div>`;
+
+      // Editable toggle
+      const editToggle = (label, field, checked, extraField='', extraValue='') => {
+        let extra = '';
+        if (extraField) {
+          extra = `<input type="text" data-field="${extraField}" value="${extraValue || ''}" placeholder="Details..."
+            class="edit-field bg-slate-700/50 border border-slate-600 rounded-lg px-2 py-1 text-xs outline-none focus:border-blue-500 w-24 ml-2 transition-colors">`;
+        }
+        return `<div class="flex items-center justify-between py-1.5 border-b border-slate-700 text-sm">
+           <span class="text-slate-400">${label}</span>
+           <div class="flex items-center">
+             ${extra}
+             <label class="relative inline-flex items-center cursor-pointer ml-2">
+               <input type="checkbox" data-field="${field}" ${checked ? 'checked' : ''} class="sr-only peer edit-toggle">
+               <div class="w-9 h-5 bg-slate-600 peer-focus:ring-2 peer-focus:ring-blue-500 rounded-full peer peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-blue-600"></div>
+             </label>
+           </div>
+         </div>`;
+      };
+
+      const hasFront = card.front_image_url && !card.front_image_url.includes('undefined');
+      const hasBack = card.back_image_url && !card.back_image_url.includes('undefined');
 
       content.innerHTML = `
         <div class="flex items-start justify-between mb-5">
           <div>
             <h2 class="text-xl font-bold">${card.player_name || 'Unknown Card'}</h2>
-            <p class="text-slate-400 text-sm">${[card.year,card.brand,card.set_name].filter(Boolean).join(' · ')}</p>
+            <p class="text-slate-400 text-sm">${[card.year,card.brand,card.set_name].filter(Boolean).join(' &middot; ')}</p>
             <div class="flex flex-wrap gap-1 mt-2">${badges(card)} ${statusPill(card.status)}</div>
           </div>
-          <button onclick="closeModalDirect()" class="text-slate-400 hover:text-white text-2xl leading-none ml-4">×</button>
+          <button onclick="closeModalDirect()" class="text-slate-400 hover:text-white text-2xl leading-none ml-4">&times;</button>
         </div>
 
-        <!-- Images -->
-        <div class="grid grid-cols-2 gap-3 mb-6">
+        <!-- Images (clickable to replace) -->
+        <div class="grid grid-cols-2 gap-3 mb-2">
           <div>
             <p class="text-xs text-slate-400 mb-1">FRONT</p>
-            <img src="${card.front_image_url}" class="w-full rounded-lg" style="max-height:280px;object-fit:contain;background:#0f172a" alt="Front">
+            <div class="relative group cursor-pointer" onclick="document.getElementById('replace-front-input').click()">
+              ${hasFront
+                ? `<img src="${card.front_image_url}" class="w-full rounded-lg" style="max-height:280px;object-fit:contain;background:#0f172a" alt="Front">`
+                : `<div class="w-full rounded-lg flex items-center justify-center bg-slate-800" style="height:200px"><span class="text-slate-500 text-sm">No front image</span></div>`
+              }
+              <div class="absolute inset-0 bg-black/50 rounded-lg flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+                <span class="text-white text-sm font-medium">Click to Replace</span>
+              </div>
+            </div>
           </div>
           <div>
             <p class="text-xs text-slate-400 mb-1">BACK</p>
-            <img src="${card.back_image_url}" class="w-full rounded-lg" style="max-height:280px;object-fit:contain;background:#0f172a" alt="Back">
+            <div class="relative group cursor-pointer" onclick="document.getElementById('replace-back-input').click()">
+              ${hasBack
+                ? `<img src="${card.back_image_url}" class="w-full rounded-lg" style="max-height:280px;object-fit:contain;background:#0f172a" alt="Back">`
+                : `<div class="w-full rounded-lg flex items-center justify-center bg-slate-800" style="height:200px"><span class="text-slate-500 text-sm">No back image</span></div>`
+              }
+              <div class="absolute inset-0 bg-black/50 rounded-lg flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+                <span class="text-white text-sm font-medium">Click to Replace</span>
+              </div>
+            </div>
           </div>
         </div>
+        <p class="text-slate-500 text-xs mb-5 text-center">Hover/tap an image to replace it</p>
 
         ${card.description ? `<p class="text-slate-300 text-sm italic mb-5 bg-slate-700/50 rounded-xl p-3">${card.description}</p>` : ''}
 
-        <!-- Card Details -->
-        <h3 class="font-semibold text-slate-300 text-xs uppercase tracking-widest mb-2">Card Details</h3>
-        <div class="mb-5">
-          ${row('Team', card.team)}
-          ${row('Sport', card.sport)}
-          ${row('Card #', card.card_number)}
-          ${row('Subset', card.subset)}
-          ${row('Condition', card.condition)}
-          ${boolRow('Rookie Card', card.is_rookie_card)}
-          ${boolRow('Parallel', card.is_parallel, card.parallel_name)}
-          ${boolRow('Foil', card.is_foil)}
-          ${boolRow('Autograph', card.is_autograph)}
-          ${boolRow('Relic', card.is_relic, card.relic_type)}
-          ${boolRow('Numbered', card.is_numbered, card.serial_number || (card.print_run ? '/' + card.print_run : ''))}
-          ${boolRow('Alternate Jersey', card.has_alternate_jersey, card.jersey_description)}
-          ${boolRow('Short Print', card.is_short_print)}
-          ${card.notable_features ? row('Notable', card.notable_features) : ''}
+        <!-- Editable Card Details -->
+        <div class="flex items-center justify-between mb-2">
+          <h3 class="font-semibold text-slate-300 text-xs uppercase tracking-widest">Card Details</h3>
+          <span class="text-xs text-slate-500">Edit any field below</span>
+        </div>
+        <div class="mb-5" id="edit-details">
+          ${editField('Player', 'player_name', card.player_name, 'Player name')}
+          ${editField('Year', 'year', card.year, '2024')}
+          ${editField('Brand', 'brand', card.brand, 'Topps, Panini...')}
+          ${editField('Set', 'set_name', card.set_name, 'Prizm, Chrome...')}
+          ${editField('Subset', 'subset', card.subset, 'All-Star, Draft...')}
+          ${editField('Card #', 'card_number', card.card_number, '123')}
+          ${editField('Team', 'team', card.team, 'Team name')}
+          ${editField('Sport', 'sport', card.sport, 'Baseball')}
+          ${editField('Condition', 'condition', card.condition, 'Mint, Near Mint...')}
+          ${editToggle('Rookie Card', 'is_rookie_card', card.is_rookie_card)}
+          ${editToggle('Parallel', 'is_parallel', card.is_parallel, 'parallel_name', card.parallel_name)}
+          ${editToggle('Foil', 'is_foil', card.is_foil)}
+          ${editToggle('Autograph', 'is_autograph', card.is_autograph)}
+          ${editToggle('Relic / Memorabilia', 'is_relic', card.is_relic, 'relic_type', card.relic_type)}
+          ${editToggle('Numbered', 'is_numbered', card.is_numbered, 'serial_number', card.serial_number)}
+          ${editField('Print Run', 'print_run', card.print_run, '25, 50, 99...')}
+          ${editToggle('Alternate Jersey', 'has_alternate_jersey', card.has_alternate_jersey, 'jersey_description', card.jersey_description)}
+          ${editToggle('Short Print', 'is_short_print', card.is_short_print)}
+          ${editField('Notable Features', 'notable_features', card.notable_features, 'Error card, SSP...')}
         </div>
 
         <!-- Pricing -->
@@ -269,22 +324,22 @@
         <h3 class="font-semibold text-slate-300 text-xs uppercase tracking-widest mb-2">Notes</h3>
         <textarea id="notes-input"
           class="w-full bg-slate-700 border border-slate-600 rounded-xl p-3 text-sm resize-none outline-none focus:border-blue-500 transition-colors mb-4"
-          rows="3" placeholder="Add notes about this card…"
+          rows="3" placeholder="Add notes about this card..."
         >${card.notes || ''}</textarea>
 
         <!-- Actions -->
         <div class="flex flex-wrap gap-3">
-          <button onclick="saveNotes('${card.id}')"
+          <button onclick="saveAllDetails('${card.id}')"
             class="flex-1 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 font-semibold text-sm transition-colors">
-            💾 Save Notes
+            Save Details
           </button>
-          <button onclick="repriceCard('${card.id}')"
-            class="flex-1 py-2.5 rounded-xl bg-slate-700 hover:bg-slate-600 font-medium text-sm transition-colors">
-            🔄 Refresh Price
+          <button onclick="saveAndReprice('${card.id}')"
+            class="flex-1 py-2.5 rounded-xl bg-green-700 hover:bg-green-600 font-semibold text-sm transition-colors">
+            Save &amp; Reprice
           </button>
           <button onclick="deleteCard('${card.id}')"
             class="py-2.5 px-4 rounded-xl bg-red-900/50 hover:bg-red-800/60 font-medium text-sm text-red-400 transition-colors">
-            🗑️ Delete
+            Delete
           </button>
         </div>
 
@@ -301,21 +356,76 @@
       document.getElementById('modal').classList.add('hidden');
     }
 
-    async function saveNotes(id) {
-      const notes = document.getElementById('notes-input').value;
+    function gatherEditFields() {
+      const body = {};
+      // Text/number inputs
+      document.querySelectorAll('#edit-details .edit-field').forEach(el => {
+        const field = el.dataset.field;
+        let val = el.value.trim();
+        if (field === 'year' || field === 'print_run') {
+          val = val ? parseInt(val, 10) || null : null;
+        }
+        body[field] = val || null;
+      });
+      // Toggle checkboxes
+      document.querySelectorAll('#edit-details .edit-toggle').forEach(el => {
+        body[el.dataset.field] = el.checked;
+      });
+      // Notes
+      const notesEl = document.getElementById('notes-input');
+      if (notesEl) body.notes = notesEl.value;
+      return body;
+    }
+
+    async function saveAllDetails(id) {
+      const body = gatherEditFields();
       await fetch('/api/cards/' + id, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ notes })
+        body: JSON.stringify(body)
       });
-      showToast('Notes saved');
+      showToast('Details saved');
+      loadCards();
     }
 
-    async function repriceCard(id) {
+    async function saveAndReprice(id) {
+      const body = gatherEditFields();
+      await fetch('/api/cards/' + id, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body)
+      });
       await fetch('/api/cards/' + id + '/reprice', { method: 'POST' });
-      showToast('Re-pricing in background…');
-      setTimeout(loadCards, 4000);
+      showToast('Saved & re-pricing in background...');
+      setTimeout(() => { loadCards(); openModal(id); }, 4000);
     }
+
+    async function replaceImage(side, file) {
+      if (!currentModalCardId || !file) return;
+      const form = new FormData();
+      form.append('image', file, side + '.jpg');
+      showToast('Uploading ' + side + ' image...');
+      const res = await fetch(`/api/cards/${currentModalCardId}/image/${side}`, {
+        method: 'POST', body: form
+      });
+      if (res.ok) {
+        showToast(side.charAt(0).toUpperCase() + side.slice(1) + ' image replaced');
+        openModal(currentModalCardId); // Refresh modal
+        loadCards();
+      } else {
+        showToast('Failed to replace image');
+      }
+    }
+
+    // Wire up the hidden file inputs for image replacement
+    document.getElementById('replace-front-input').addEventListener('change', e => {
+      if (e.target.files[0]) replaceImage('front', e.target.files[0]);
+      e.target.value = '';
+    });
+    document.getElementById('replace-back-input').addEventListener('change', e => {
+      if (e.target.files[0]) replaceImage('back', e.target.files[0]);
+      e.target.value = '';
+    });
 
     async function deleteCard(id) {
       if (!confirm('Delete this card and its images? This cannot be undone.')) return;

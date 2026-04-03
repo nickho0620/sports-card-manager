@@ -17,13 +17,17 @@
     .step-dot.done { background:#22c55e; }
     @keyframes spin { to { transform: rotate(360deg); } }
     .spinner { animation: spin 1s linear infinite; }
+    .source-btn { display:flex; flex-direction:column; align-items:center; gap:6px; padding:16px 12px;
+      background:#1e293b; border:2px solid #334155; border-radius:16px; cursor:pointer; transition:all .15s; flex:1; }
+    .source-btn:hover { border-color:#3b82f6; background:#1e293b; }
+    .source-btn:active { background:#0f172a; }
   </style>
 </head>
 <body class="bg-slate-900 text-white min-h-screen flex flex-col">
 
   <!-- Header -->
   <div class="flex items-center justify-between px-5 pt-6 pb-3">
-    <a href="/" class="text-slate-400 text-sm">← Dashboard</a>
+    <a href="/" class="text-slate-400 text-sm">&larr; Dashboard</a>
     <h1 class="text-lg font-bold tracking-tight">Card Scanner</h1>
     <div class="w-16"></div>
   </div>
@@ -38,12 +42,15 @@
   <!-- Main content area -->
   <div class="flex-1 px-5 pb-8" id="main-content"></div>
 
-  <!-- Hidden file inputs (triggers camera on mobile) -->
-  <input type="file" id="front-input" accept="image/*" capture="environment" class="hidden">
-  <input type="file" id="back-input"  accept="image/*" capture="environment" class="hidden">
+  <!-- Hidden file inputs: camera-specific and file-picker -->
+  <input type="file" id="front-camera"  accept="image/*" capture="environment" class="hidden">
+  <input type="file" id="front-file"    accept="image/*" class="hidden">
+  <input type="file" id="back-camera"   accept="image/*" capture="environment" class="hidden">
+  <input type="file" id="back-file"     accept="image/*" class="hidden">
 
   <script>
     const API_BASE = window.location.origin;
+    const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
 
     let state = 'initial';  // initial | front-captured | back-captured | uploading | complete | error
     let frontFile = null;
@@ -55,11 +62,36 @@
     function setDots(step) {
       [1,2,3].forEach(i => {
         const d = document.getElementById('dot-' + i);
-        d.className = 'step-dot' + (i < step ? ' done' : i === step ? ' active' : '');
+        if (d) d.className = 'step-dot' + (i < step ? ' done' : i === step ? ' active' : '');
       });
     }
 
     function objectUrl(file) { return file ? URL.createObjectURL(file) : ''; }
+
+    // Source selection buttons (camera vs. file)
+    function sourceButtons(side) {
+      if (isMobile) {
+        return `
+          <div class="flex gap-3 w-full">
+            <div class="source-btn" onclick="document.getElementById('${side}-camera').click()">
+              <span class="text-3xl">📷</span>
+              <span class="text-sm font-medium">Take Photo</span>
+            </div>
+            <div class="source-btn" onclick="document.getElementById('${side}-file').click()">
+              <span class="text-3xl">🖼️</span>
+              <span class="text-sm font-medium">Photo Library</span>
+            </div>
+          </div>`;
+      } else {
+        return `
+          <div class="flex gap-3 w-full">
+            <div class="source-btn" onclick="document.getElementById('${side}-file').click()" style="flex:1">
+              <span class="text-3xl">📁</span>
+              <span class="text-sm font-medium">Choose from Files</span>
+            </div>
+          </div>`;
+      }
+    }
 
     // ── Render ───────────────────────────────────────────────────────────────
 
@@ -73,38 +105,28 @@
             <div class="text-center">
               <div class="text-5xl mb-3">📸</div>
               <h2 class="text-xl font-semibold">Scan Card Front</h2>
-              <p class="text-slate-400 text-sm mt-1">Take a clear photo of the front of the card</p>
+              <p class="text-slate-400 text-sm mt-1">Take a photo or choose from your files</p>
             </div>
-            <div class="w-full rounded-xl border-2 border-dashed border-slate-600 flex items-center justify-center" style="min-height:200px">
+            <div class="w-full rounded-xl border-2 border-dashed border-slate-600 flex items-center justify-center" style="min-height:160px">
               <span class="text-slate-500 text-sm">Front image will appear here</span>
             </div>
-            <button id="btn-front" class="w-full py-4 rounded-2xl bg-blue-600 hover:bg-blue-500 active:bg-blue-700 font-semibold text-lg transition-colors">
-              📷 Take Front Photo
-            </button>
+            ${sourceButtons('front')}
           </div>`;
-        document.getElementById('btn-front').onclick = () => document.getElementById('front-input').click();
 
       } else if (state === 'front-captured') {
         setDots(2);
         el.innerHTML = `
           <div class="flex flex-col items-center gap-5 mt-4">
             <div class="text-center">
-              <div class="text-5xl mb-2">✅</div>
+              <div class="text-5xl mb-2">&#10003;</div>
               <h2 class="text-xl font-semibold">Front Captured!</h2>
               <p class="text-slate-400 text-sm mt-1">Now scan the back of the card</p>
             </div>
             <img id="front-preview" src="${objectUrl(frontFile)}" class="preview-img" alt="Card front">
-            <div class="flex gap-3 w-full">
-              <button id="btn-retake-front" class="flex-1 py-3 rounded-2xl bg-slate-700 hover:bg-slate-600 active:bg-slate-800 font-medium transition-colors text-sm">
-                Retake Front
-              </button>
-              <button id="btn-back" class="flex-2 flex-1 py-3 rounded-2xl bg-blue-600 hover:bg-blue-500 active:bg-blue-700 font-semibold transition-colors">
-                📷 Scan Back
-              </button>
-            </div>
+            <button onclick="frontFile=null;state='initial';render()"
+              class="text-slate-400 hover:text-white text-xs underline">Retake Front</button>
+            ${sourceButtons('back')}
           </div>`;
-        document.getElementById('btn-retake-front').onclick = () => { frontFile = null; state = 'initial'; render(); };
-        document.getElementById('btn-back').onclick = () => document.getElementById('back-input').click();
 
       } else if (state === 'back-captured') {
         setDots(3);
@@ -118,23 +140,21 @@
               <div>
                 <p class="text-xs text-slate-400 mb-1 text-center">FRONT</p>
                 <img src="${objectUrl(frontFile)}" class="preview-img" style="max-height:22vh" alt="Front">
+                <button onclick="frontFile=null;state='initial';render()"
+                  class="block mx-auto mt-1 text-slate-400 hover:text-white text-xs underline">Replace</button>
               </div>
               <div>
                 <p class="text-xs text-slate-400 mb-1 text-center">BACK</p>
                 <img src="${objectUrl(backFile)}" class="preview-img" style="max-height:22vh" alt="Back">
+                <button onclick="backFile=null;state='front-captured';render()"
+                  class="block mx-auto mt-1 text-slate-400 hover:text-white text-xs underline">Replace</button>
               </div>
             </div>
-            <div class="flex gap-3 w-full">
-              <button id="btn-retake-back" class="flex-1 py-3 rounded-2xl bg-slate-700 hover:bg-slate-600 font-medium transition-colors text-sm">
-                Retake Back
-              </button>
-              <button id="btn-submit" class="flex-1 py-3 rounded-2xl bg-green-600 hover:bg-green-500 active:bg-green-700 font-semibold transition-colors">
-                ✅ Submit Card
-              </button>
-            </div>
+            <button onclick="uploadCard()"
+              class="w-full py-4 rounded-2xl bg-green-600 hover:bg-green-500 active:bg-green-700 font-semibold text-lg transition-colors mt-2">
+              Upload &amp; Analyze
+            </button>
           </div>`;
-        document.getElementById('btn-retake-back').onclick = () => { backFile = null; state = 'front-captured'; render(); };
-        document.getElementById('btn-submit').onclick = uploadCard;
 
       } else if (state === 'uploading') {
         document.getElementById('step-dots').innerHTML = '';
@@ -144,7 +164,7 @@
               <circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="3" stroke-dasharray="32" stroke-dashoffset="10"/>
             </svg>
             <div class="text-center">
-              <h2 class="text-xl font-semibold">Uploading…</h2>
+              <h2 class="text-xl font-semibold">Uploading...</h2>
               <p class="text-slate-400 text-sm mt-1">Sending card to be analyzed</p>
             </div>
           </div>`;
@@ -153,40 +173,38 @@
         document.getElementById('step-dots').innerHTML = '';
         el.innerHTML = `
           <div class="flex flex-col items-center gap-6 mt-10 text-center">
-            <div class="text-6xl">🎉</div>
+            <div class="text-6xl">&#127881;</div>
             <div>
               <h2 class="text-2xl font-bold">Card Uploaded!</h2>
-              <p class="text-slate-400 text-sm mt-2">Gemini is analyzing your card.<br>It will be ready in the dashboard shortly.</p>
+              <p class="text-slate-400 text-sm mt-2">Claude is analyzing your card.<br>It will be ready in the dashboard shortly.</p>
             </div>
             <div class="bg-slate-800 rounded-xl px-5 py-3 w-full">
               <p class="text-xs text-slate-400 mb-1">Card ID</p>
               <p class="font-mono text-xs text-blue-400 break-all">${resultCardId}</p>
             </div>
             <div class="flex flex-col gap-3 w-full">
-              <button id="btn-another" class="w-full py-4 rounded-2xl bg-blue-600 hover:bg-blue-500 font-semibold text-lg transition-colors">
-                📷 Scan Another Card
+              <button onclick="resetScanner()" class="w-full py-4 rounded-2xl bg-blue-600 hover:bg-blue-500 font-semibold text-lg transition-colors">
+                Scan Another Card
               </button>
               <a href="/" class="block w-full py-3 rounded-2xl bg-slate-700 hover:bg-slate-600 font-medium text-center transition-colors">
                 View Dashboard
               </a>
             </div>
           </div>`;
-        document.getElementById('btn-another').onclick = resetScanner;
 
       } else if (state === 'error') {
         document.getElementById('step-dots').innerHTML = '';
         el.innerHTML = `
           <div class="flex flex-col items-center gap-6 mt-10 text-center">
-            <div class="text-6xl">❌</div>
+            <div class="text-6xl">&#10060;</div>
             <div>
               <h2 class="text-2xl font-bold">Upload Failed</h2>
               <p class="text-slate-400 text-sm mt-2" id="error-msg"></p>
             </div>
-            <button id="btn-retry" class="w-full py-4 rounded-2xl bg-blue-600 font-semibold text-lg">
+            <button onclick="resetScanner()" class="w-full py-4 rounded-2xl bg-blue-600 font-semibold text-lg">
               Try Again
             </button>
           </div>`;
-        document.getElementById('btn-retry').onclick = resetScanner;
       }
     }
 
@@ -207,8 +225,8 @@
       render();
       try {
         const form = new FormData();
-        form.append('front_image', frontFile, 'front.jpg');
-        form.append('back_image',  backFile,  'back.jpg');
+        if (frontFile) form.append('front_image', frontFile, 'front.jpg');
+        if (backFile)  form.append('back_image',  backFile,  'back.jpg');
         const res = await fetch(`${API_BASE}/api/cards/upload`, { method: 'POST', body: form });
         if (!res.ok) throw new Error(`Server error ${res.status}`);
         const data = await res.json();
@@ -224,18 +242,22 @@
       render();
     }
 
-    // ── File input listeners ─────────────────────────────────────────────────
+    // ── File input listeners (camera + file picker, for front + back) ──────
 
-    document.getElementById('front-input').addEventListener('change', e => {
-      const file = e.target.files[0];
-      if (file) { frontFile = file; state = 'front-captured'; render(); }
-      e.target.value = '';
+    ['front-camera', 'front-file'].forEach(inputId => {
+      document.getElementById(inputId).addEventListener('change', e => {
+        const file = e.target.files[0];
+        if (file) { frontFile = file; state = 'front-captured'; render(); }
+        e.target.value = '';
+      });
     });
 
-    document.getElementById('back-input').addEventListener('change', e => {
-      const file = e.target.files[0];
-      if (file) { backFile = file; state = 'back-captured'; render(); }
-      e.target.value = '';
+    ['back-camera', 'back-file'].forEach(inputId => {
+      document.getElementById(inputId).addEventListener('change', e => {
+        const file = e.target.files[0];
+        if (file) { backFile = file; state = 'back-captured'; render(); }
+        e.target.value = '';
+      });
     });
 
     // ── Init ─────────────────────────────────────────────────────────────────
