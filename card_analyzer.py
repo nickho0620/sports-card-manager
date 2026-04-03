@@ -1,17 +1,17 @@
 """
-Card analyzer — uses Google Gemini Vision to extract all metadata from
-front + back card images.
+Card analyzer — uses Claude Vision (Anthropic) to extract all metadata from
+front + back card images. Falls back to Google Gemini if configured.
 """
 import base64
+import io
 import json
 import os
 import time
 
-import google.generativeai as genai
+import anthropic
 from PIL import Image
-import io
 
-GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.0-flash")
+CLAUDE_MODEL = os.getenv("CLAUDE_MODEL", "claude-sonnet-4-20250514")
 
 ANALYSIS_PROMPT = """You are an expert sports card grader and identifier.
 Analyze the front and back of this card and return ONLY a valid JSON object — no markdown, no explanation.
@@ -45,11 +45,10 @@ Extract every detail you can see:
 }"""
 
 
-def _load_image_part(path: str) -> dict:
-    """Load an image from disk, resize if huge, return Gemini inline data."""
+def _load_image_b64(path: str) -> tuple[str, str]:
+    """Load an image, resize if huge, return (base64_data, media_type)."""
     with Image.open(path) as img:
         img = img.convert("RGB")
-        # Cap at 2000px on longest side to stay within Gemini limits
         max_dim = 2000
         w, h = img.size
         if max(w, h) > max_dim:
@@ -57,16 +56,15 @@ def _load_image_part(path: str) -> dict:
             img = img.resize((int(w * scale), int(h * scale)), Image.LANCZOS)
         buf = io.BytesIO()
         img.save(buf, format="JPEG", quality=85)
-        data = base64.b64encode(buf.getvalue()).decode()
-    return {"mime_type": "image/jpeg", "data": data}
+        data = base64.standard_b64encode(buf.getvalue()).decode()
+    return data, "image/jpeg"
 
 
 def _clean_json(text: str) -> str:
-    """Strip markdown code fences if Gemini wraps the JSON."""
+    """Strip markdown code fences if the model wraps the JSON."""
     text = text.strip()
     if text.startswith("```"):
         lines = text.split("\n")
-        # Drop first line (```json or ```) and last line (```)
         inner = lines[1:-1] if lines[-1].strip() == "```" else lines[1:]
         text = "\n".join(inner).strip()
     return text
@@ -74,37 +72,60 @@ def _clean_json(text: str) -> str:
 
 def analyze_card(front_path: str, back_path: str, retries: int = 3) -> dict:
     """
-    Analyze a card's front and back images with Gemini Vision.
+    Analyze a card's front and back images with Claude Vision.
     Returns a dict of card metadata.
-    Raises an exception if analysis fails after all retries.
     """
-    api_key = os.getenv("GEMINI_API_KEY")
+    api_key = os.getenv("ANTHROPIC_API_KEY")
     if not api_key:
-        raise ValueError("GEMINI_API_KEY environment variable is not set. "
-                         "Get a free key at https://aistudio.google.com")
+        raise ValueError("ANTHROPIC_API_KEY environment variable is not set. "
+                         "Get a key at https://console.anthropic.com")
 
-    genai.configure(api_key=api_key)
-    model = genai.GenerativeModel(GEMINI_MODEL)
+    client = anthropic.Anthropic(api_key=api_key)
 
-    front_part = _load_image_part(front_path)
-    back_part = _load_image_part(back_path)
+    front_b64, front_type = _load_image_b64(front_path)
+    back_b64, back_type = _load_image_b64(back_path)
 
     for attempt in range(retries):
         try:
-            response = model.generate_content([
-                ANALYSIS_PROMPT,
-                {"inline_data": front_part},
-                {"inline_data": back_part},
-            ])
-            raw = _clean_json(response.text)
+            response = client.messages.create(
+                model=CLAUDE_MODEL,
+                max_tokens=1024,
+                messages=[{
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": ANALYSIS_PROMPT},
+                        {
+                            "type": "image",
+                            "source": {
+                                "type": "base64",
+                                "media_type": front_type,
+                                "data": front_b64,
+                            },
+                        },
+                        {
+                            "type": "image",
+                            "source": {
+                                "type": "base64",
+                                "media_type": back_type,
+                                "data": back_b64,
+                            },
+                        },
+                    ],
+                }],
+            )
+            raw = _clean_json(response.content[0].text)
             result = json.loads(raw)
             return result
         except json.JSONDecodeError:
-            # Gemini returned something that isn't valid JSON — retry
             if attempt < retries - 1:
                 time.sleep(2 ** attempt)
                 continue
-            raise ValueError(f"Gemini returned invalid JSON after {retries} attempts: {response.text[:500]}")
+            raise ValueError(f"Claude returned invalid JSON after {retries} attempts: {response.content[0].text[:500]}")
+        except anthropic.RateLimitError:
+            if attempt < retries - 1:
+                time.sleep(5 * (attempt + 1))
+                continue
+            raise
         except Exception as e:
             if attempt < retries - 1:
                 time.sleep(2 ** attempt)

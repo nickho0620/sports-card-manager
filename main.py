@@ -3,7 +3,7 @@ Sports Card Manager — FastAPI backend
 Serves the mobile PWA and REST API.
 """
 from dotenv import load_dotenv
-load_dotenv()
+load_dotenv(override=True)
 
 import json
 import os
