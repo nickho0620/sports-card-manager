@@ -1,0 +1,356 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Sports Card Manager</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    body { background: #0f172a; color: #f1f5f9; font-family: system-ui, sans-serif; }
+    .card-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 16px; }
+    .card-thumb { width:100%; aspect-ratio:3/4; object-fit:cover; background:#1e293b; border-radius:8px 8px 0 0; }
+    .badge { display:inline-block; padding:2px 7px; border-radius:999px; font-size:11px; font-weight:700; letter-spacing:.04em; }
+    .badge-rc     { background:#fef08a; color:#713f12; }
+    .badge-auto   { background:#bfdbfe; color:#1e3a8a; }
+    .badge-relic  { background:#d9f99d; color:#14532d; }
+    .badge-num    { background:#fde68a; color:#78350f; }
+    .badge-par    { background:#e9d5ff; color:#581c87; }
+    .badge-foil   { background:#f0abfc; color:#701a75; }
+    .badge-sp     { background:#fecaca; color:#7f1d1d; }
+    .status-pill  { padding:2px 8px; border-radius:999px; font-size:10px; font-weight:600; text-transform:uppercase; }
+    .s-pending    { background:#334155; color:#94a3b8; }
+    .s-analyzing  { background:#1e3a8a; color:#93c5fd; }
+    .s-pricing    { background:#164e63; color:#67e8f9; }
+    .s-complete   { background:#14532d; color:#86efac; }
+    .s-error      { background:#7f1d1d; color:#fca5a5; }
+    .modal-bg     { position:fixed;inset:0;background:rgba(0,0,0,.75);z-index:50;display:flex;align-items:center;justify-content:center;padding:16px; }
+    .modal-box    { background:#1e293b;border-radius:16px;width:100%;max-width:720px;max-height:92vh;overflow-y:auto; }
+    @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.4} }
+    .pulsing { animation: pulse 1.5s ease-in-out infinite; }
+    .filter-btn { padding:6px 16px; border-radius:999px; font-size:13px; cursor:pointer; border:1px solid #334155; transition:all .15s; }
+    .filter-btn.active { background:#3b82f6; border-color:#3b82f6; color:#fff; }
+    .filter-btn:not(.active) { background:transparent; color:#94a3b8; }
+    .filter-btn:not(.active):hover { border-color:#64748b; color:#cbd5e1; }
+  </style>
+</head>
+<body class="min-h-screen">
+
+  <!-- Header -->
+  <header class="border-b border-slate-800 px-6 py-4 flex items-center justify-between sticky top-0 bg-slate-900/95 backdrop-blur z-10">
+    <div class="flex items-center gap-3">
+      <span class="text-2xl">⚾</span>
+      <div>
+        <h1 class="text-lg font-bold leading-tight">Sports Card Manager</h1>
+        <p class="text-xs text-slate-400" id="header-stats">Loading…</p>
+      </div>
+    </div>
+    <a href="/scanner" class="flex items-center gap-2 bg-blue-600 hover:bg-blue-500 text-white px-4 py-2 rounded-xl font-semibold text-sm transition-colors">
+      📷 Scan Card
+    </a>
+  </header>
+
+  <!-- Filters & Search -->
+  <div class="px-6 py-4 flex flex-col sm:flex-row gap-3 border-b border-slate-800">
+    <input
+      id="search-input"
+      type="text"
+      placeholder="Search player, brand, set, team…"
+      class="flex-1 bg-slate-800 border border-slate-700 rounded-xl px-4 py-2 text-sm outline-none focus:border-blue-500 transition-colors"
+    >
+    <div class="flex gap-2 flex-wrap">
+      <button class="filter-btn active" data-status="">All</button>
+      <button class="filter-btn" data-status="complete">Complete</button>
+      <button class="filter-btn" data-status="analyzing">Analyzing</button>
+      <button class="filter-btn" data-status="error">Error</button>
+    </div>
+  </div>
+
+  <!-- Card Grid -->
+  <main class="px-6 py-6">
+    <div id="cards-grid" class="card-grid"></div>
+    <div id="empty-state" class="hidden text-center py-24">
+      <div class="text-5xl mb-4">📭</div>
+      <h2 class="text-xl font-semibold text-slate-300">No cards yet</h2>
+      <p class="text-slate-500 text-sm mt-2">Scan your first card to get started.</p>
+      <a href="/scanner" class="inline-block mt-6 bg-blue-600 hover:bg-blue-500 text-white px-6 py-3 rounded-xl font-semibold transition-colors">
+        📷 Scan Your First Card
+      </a>
+    </div>
+    <div id="loading-state" class="text-center py-24 text-slate-500">Loading cards…</div>
+  </main>
+
+  <!-- Detail Modal -->
+  <div id="modal" class="modal-bg hidden" onclick="closeModal(event)">
+    <div class="modal-box p-6" id="modal-content"></div>
+  </div>
+
+  <script>
+    let allCards = [];
+    let currentFilter = '';
+    let currentSearch = '';
+    let pollTimer = null;
+
+    // ── Data loading ─────────────────────────────────────────────────────────
+
+    async function loadCards() {
+      const params = new URLSearchParams({ limit: 200 });
+      if (currentSearch) params.set('search', currentSearch);
+      if (currentFilter) params.set('status', currentFilter);
+      const res = await fetch('/api/cards?' + params);
+      const data = await res.json();
+      allCards = data.cards;
+      updateStats(data.stats);
+      renderGrid(data.cards);
+      // Poll if any cards are still processing
+      const pending = data.cards.some(c => ['pending','analyzing','pricing'].includes(c.status));
+      if (pending) {
+        clearTimeout(pollTimer);
+        pollTimer = setTimeout(loadCards, 3000);
+      }
+    }
+
+    function updateStats(stats) {
+      document.getElementById('header-stats').textContent =
+        `${stats.total_cards} cards · ${stats.complete} analyzed · Est. value $${(stats.total_value||0).toFixed(2)}`;
+    }
+
+    // ── Rendering ────────────────────────────────────────────────────────────
+
+    function badges(card) {
+      const b = [];
+      if (card.is_rookie_card)  b.push(`<span class="badge badge-rc">RC</span>`);
+      if (card.is_autograph)    b.push(`<span class="badge badge-auto">AUTO</span>`);
+      if (card.is_relic)        b.push(`<span class="badge badge-relic">${card.relic_type||'RELIC'}</span>`);
+      if (card.is_numbered && card.print_run) b.push(`<span class="badge badge-num">/${card.print_run}</span>`);
+      if (card.is_parallel && card.parallel_name) b.push(`<span class="badge badge-par">${card.parallel_name}</span>`);
+      if (card.is_foil)         b.push(`<span class="badge badge-foil">FOIL</span>`);
+      if (card.is_short_print)  b.push(`<span class="badge badge-sp">SP</span>`);
+      return b.join(' ');
+    }
+
+    function statusPill(status) {
+      const label = { pending:'Pending', analyzing:'Analyzing…', pricing:'Pricing…', complete:'Complete', error:'Error' }[status] || status;
+      const cls = { pending:'s-pending', analyzing:'s-analyzing pulsing', pricing:'s-pricing pulsing', complete:'s-complete', error:'s-error' }[status] || 's-pending';
+      return `<span class="status-pill ${cls}">${label}</span>`;
+    }
+
+    function renderGrid(cards) {
+      const grid = document.getElementById('cards-grid');
+      const empty = document.getElementById('empty-state');
+      const loading = document.getElementById('loading-state');
+      loading.classList.add('hidden');
+
+      if (!cards.length) {
+        grid.innerHTML = '';
+        empty.classList.remove('hidden');
+        return;
+      }
+      empty.classList.add('hidden');
+
+      grid.innerHTML = cards.map(card => `
+        <div class="bg-slate-800 rounded-xl overflow-hidden cursor-pointer hover:ring-2 hover:ring-blue-500 transition-all"
+             onclick="openModal('${card.id}')">
+          <div class="relative">
+            <img src="${card.front_image_url}" class="card-thumb" alt="${card.player_name||'Card'}"
+                 onerror="this.style.display='none'">
+            <div class="absolute top-2 right-2">${statusPill(card.status)}</div>
+          </div>
+          <div class="p-3">
+            <p class="font-semibold text-sm truncate">${card.player_name || '—'}</p>
+            <p class="text-xs text-slate-400 truncate mt-0.5">
+              ${[card.year, card.brand, card.set_name].filter(Boolean).join(' · ')}
+            </p>
+            <div class="flex flex-wrap gap-1 mt-2">${badges(card)}</div>
+            <div class="mt-2 flex items-center justify-between">
+              ${card.estimated_price
+                ? `<span class="text-green-400 font-bold text-sm">$${card.estimated_price.toFixed(2)}</span>`
+                : `<span class="text-slate-600 text-xs">No price yet</span>`
+              }
+              ${card.team ? `<span class="text-slate-500 text-xs truncate ml-2">${card.team}</span>` : ''}
+            </div>
+          </div>
+        </div>
+      `).join('');
+    }
+
+    // ── Detail Modal ─────────────────────────────────────────────────────────
+
+    async function openModal(id) {
+      const res = await fetch('/api/cards/' + id);
+      const card = await res.json();
+      const modal = document.getElementById('modal');
+      const content = document.getElementById('modal-content');
+
+      const row = (label, value) => value != null && value !== false && value !== ''
+        ? `<div class="flex justify-between py-1.5 border-b border-slate-700 text-sm">
+             <span class="text-slate-400">${label}</span>
+             <span class="text-right font-medium max-w-xs">${value}</span>
+           </div>`
+        : '';
+
+      const boolRow = (label, val, extra='') => val
+        ? `<div class="flex justify-between py-1.5 border-b border-slate-700 text-sm">
+             <span class="text-slate-400">${label}</span>
+             <span class="text-green-400 font-semibold">Yes${extra ? ' — ' + extra : ''}</span>
+           </div>`
+        : '';
+
+      content.innerHTML = `
+        <div class="flex items-start justify-between mb-5">
+          <div>
+            <h2 class="text-xl font-bold">${card.player_name || 'Unknown Card'}</h2>
+            <p class="text-slate-400 text-sm">${[card.year,card.brand,card.set_name].filter(Boolean).join(' · ')}</p>
+            <div class="flex flex-wrap gap-1 mt-2">${badges(card)} ${statusPill(card.status)}</div>
+          </div>
+          <button onclick="closeModalDirect()" class="text-slate-400 hover:text-white text-2xl leading-none ml-4">×</button>
+        </div>
+
+        <!-- Images -->
+        <div class="grid grid-cols-2 gap-3 mb-6">
+          <div>
+            <p class="text-xs text-slate-400 mb-1">FRONT</p>
+            <img src="${card.front_image_url}" class="w-full rounded-lg" style="max-height:280px;object-fit:contain;background:#0f172a" alt="Front">
+          </div>
+          <div>
+            <p class="text-xs text-slate-400 mb-1">BACK</p>
+            <img src="${card.back_image_url}" class="w-full rounded-lg" style="max-height:280px;object-fit:contain;background:#0f172a" alt="Back">
+          </div>
+        </div>
+
+        ${card.description ? `<p class="text-slate-300 text-sm italic mb-5 bg-slate-700/50 rounded-xl p-3">${card.description}</p>` : ''}
+
+        <!-- Card Details -->
+        <h3 class="font-semibold text-slate-300 text-xs uppercase tracking-widest mb-2">Card Details</h3>
+        <div class="mb-5">
+          ${row('Team', card.team)}
+          ${row('Sport', card.sport)}
+          ${row('Card #', card.card_number)}
+          ${row('Subset', card.subset)}
+          ${row('Condition', card.condition)}
+          ${boolRow('Rookie Card', card.is_rookie_card)}
+          ${boolRow('Parallel', card.is_parallel, card.parallel_name)}
+          ${boolRow('Foil', card.is_foil)}
+          ${boolRow('Autograph', card.is_autograph)}
+          ${boolRow('Relic', card.is_relic, card.relic_type)}
+          ${boolRow('Numbered', card.is_numbered, card.serial_number || (card.print_run ? '/' + card.print_run : ''))}
+          ${boolRow('Alternate Jersey', card.has_alternate_jersey, card.jersey_description)}
+          ${boolRow('Short Print', card.is_short_print)}
+          ${card.notable_features ? row('Notable', card.notable_features) : ''}
+        </div>
+
+        <!-- Pricing -->
+        <h3 class="font-semibold text-slate-300 text-xs uppercase tracking-widest mb-2">eBay Pricing (Sold Listings)</h3>
+        <div class="mb-5">
+          ${card.ebay_avg_sale
+            ? `${row('Avg Sale', '$' + card.ebay_avg_sale.toFixed(2))}
+               ${row('Low', '$' + card.ebay_low.toFixed(2))}
+               ${row('High', '$' + card.ebay_high.toFixed(2))}
+               ${row('# Sales Found', card.ebay_num_sales)}
+               ${row('Search Used', card.ebay_search_query)}
+               ${card.ebay_last_checked ? row('Last Checked', new Date(card.ebay_last_checked).toLocaleString()) : ''}`
+            : `<p class="text-slate-500 text-sm py-2">No pricing data yet.</p>`
+          }
+        </div>
+
+        ${card.estimated_price
+          ? `<div class="bg-green-900/40 border border-green-700 rounded-xl p-4 mb-5 text-center">
+               <p class="text-xs text-green-400 uppercase tracking-widest">Estimated Sell Price</p>
+               <p class="text-3xl font-bold text-green-300 mt-1">$${card.estimated_price.toFixed(2)}</p>
+             </div>`
+          : ''
+        }
+
+        <!-- Notes -->
+        <h3 class="font-semibold text-slate-300 text-xs uppercase tracking-widest mb-2">Notes</h3>
+        <textarea id="notes-input"
+          class="w-full bg-slate-700 border border-slate-600 rounded-xl p-3 text-sm resize-none outline-none focus:border-blue-500 transition-colors mb-4"
+          rows="3" placeholder="Add notes about this card…"
+        >${card.notes || ''}</textarea>
+
+        <!-- Actions -->
+        <div class="flex flex-wrap gap-3">
+          <button onclick="saveNotes('${card.id}')"
+            class="flex-1 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 font-semibold text-sm transition-colors">
+            💾 Save Notes
+          </button>
+          <button onclick="repriceCard('${card.id}')"
+            class="flex-1 py-2.5 rounded-xl bg-slate-700 hover:bg-slate-600 font-medium text-sm transition-colors">
+            🔄 Refresh Price
+          </button>
+          <button onclick="deleteCard('${card.id}')"
+            class="py-2.5 px-4 rounded-xl bg-red-900/50 hover:bg-red-800/60 font-medium text-sm text-red-400 transition-colors">
+            🗑️ Delete
+          </button>
+        </div>
+
+        <p class="text-slate-600 text-xs mt-4 text-center">ID: ${card.id}</p>
+      `;
+
+      modal.classList.remove('hidden');
+    }
+
+    function closeModal(e) {
+      if (e.target === document.getElementById('modal')) closeModalDirect();
+    }
+    function closeModalDirect() {
+      document.getElementById('modal').classList.add('hidden');
+    }
+
+    async function saveNotes(id) {
+      const notes = document.getElementById('notes-input').value;
+      await fetch('/api/cards/' + id, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ notes })
+      });
+      showToast('Notes saved');
+    }
+
+    async function repriceCard(id) {
+      await fetch('/api/cards/' + id + '/reprice', { method: 'POST' });
+      showToast('Re-pricing in background…');
+      setTimeout(loadCards, 4000);
+    }
+
+    async function deleteCard(id) {
+      if (!confirm('Delete this card and its images? This cannot be undone.')) return;
+      await fetch('/api/cards/' + id, { method: 'DELETE' });
+      closeModalDirect();
+      loadCards();
+    }
+
+    // ── Toast ────────────────────────────────────────────────────────────────
+
+    function showToast(msg) {
+      const t = document.createElement('div');
+      t.className = 'fixed bottom-6 left-1/2 -translate-x-1/2 bg-slate-700 text-white text-sm px-5 py-2.5 rounded-xl shadow-xl z-50 transition-opacity';
+      t.textContent = msg;
+      document.body.appendChild(t);
+      setTimeout(() => { t.style.opacity = '0'; setTimeout(() => t.remove(), 300); }, 2500);
+    }
+
+    // ── Filters & Search ─────────────────────────────────────────────────────
+
+    document.querySelectorAll('.filter-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        currentFilter = btn.dataset.status;
+        loadCards();
+      });
+    });
+
+    let searchDebounce;
+    document.getElementById('search-input').addEventListener('input', e => {
+      clearTimeout(searchDebounce);
+      searchDebounce = setTimeout(() => {
+        currentSearch = e.target.value.trim();
+        loadCards();
+      }, 300);
+    });
+
+    // ── Init ─────────────────────────────────────────────────────────────────
+    loadCards();
+  </script>
+</body>
+</html>

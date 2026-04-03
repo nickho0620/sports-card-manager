@@ -1,0 +1,245 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>Card Scanner</title>
+  <link rel="manifest" href="/static/manifest.json">
+  <meta name="theme-color" content="#1e40af">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    body { -webkit-tap-highlight-color: transparent; }
+    .preview-img { width: 100%; max-height: 38vh; object-fit: contain; background: #0f172a; border-radius: 12px; }
+    .step-dot { width:10px; height:10px; border-radius:50%; background:#334155; transition: background .3s; }
+    .step-dot.active { background:#3b82f6; }
+    .step-dot.done { background:#22c55e; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .spinner { animation: spin 1s linear infinite; }
+  </style>
+</head>
+<body class="bg-slate-900 text-white min-h-screen flex flex-col">
+
+  <!-- Header -->
+  <div class="flex items-center justify-between px-5 pt-6 pb-3">
+    <a href="/" class="text-slate-400 text-sm">← Dashboard</a>
+    <h1 class="text-lg font-bold tracking-tight">Card Scanner</h1>
+    <div class="w-16"></div>
+  </div>
+
+  <!-- Step indicators -->
+  <div class="flex justify-center gap-3 pb-4" id="step-dots">
+    <div class="step-dot active" id="dot-1"></div>
+    <div class="step-dot" id="dot-2"></div>
+    <div class="step-dot" id="dot-3"></div>
+  </div>
+
+  <!-- Main content area -->
+  <div class="flex-1 px-5 pb-8" id="main-content"></div>
+
+  <!-- Hidden file inputs (triggers camera on mobile) -->
+  <input type="file" id="front-input" accept="image/*" capture="environment" class="hidden">
+  <input type="file" id="back-input"  accept="image/*" capture="environment" class="hidden">
+
+  <script>
+    const API_BASE = window.location.origin;
+
+    let state = 'initial';  // initial | front-captured | back-captured | uploading | complete | error
+    let frontFile = null;
+    let backFile  = null;
+    let resultCardId = null;
+
+    // ── State helpers ────────────────────────────────────────────────────────
+
+    function setDots(step) {
+      [1,2,3].forEach(i => {
+        const d = document.getElementById('dot-' + i);
+        d.className = 'step-dot' + (i < step ? ' done' : i === step ? ' active' : '');
+      });
+    }
+
+    function objectUrl(file) { return file ? URL.createObjectURL(file) : ''; }
+
+    // ── Render ───────────────────────────────────────────────────────────────
+
+    function render() {
+      const el = document.getElementById('main-content');
+
+      if (state === 'initial') {
+        setDots(1);
+        el.innerHTML = `
+          <div class="flex flex-col items-center gap-6 mt-6">
+            <div class="text-center">
+              <div class="text-5xl mb-3">📸</div>
+              <h2 class="text-xl font-semibold">Scan Card Front</h2>
+              <p class="text-slate-400 text-sm mt-1">Take a clear photo of the front of the card</p>
+            </div>
+            <div class="w-full rounded-xl border-2 border-dashed border-slate-600 flex items-center justify-center" style="min-height:200px">
+              <span class="text-slate-500 text-sm">Front image will appear here</span>
+            </div>
+            <button id="btn-front" class="w-full py-4 rounded-2xl bg-blue-600 hover:bg-blue-500 active:bg-blue-700 font-semibold text-lg transition-colors">
+              📷 Take Front Photo
+            </button>
+          </div>`;
+        document.getElementById('btn-front').onclick = () => document.getElementById('front-input').click();
+
+      } else if (state === 'front-captured') {
+        setDots(2);
+        el.innerHTML = `
+          <div class="flex flex-col items-center gap-5 mt-4">
+            <div class="text-center">
+              <div class="text-5xl mb-2">✅</div>
+              <h2 class="text-xl font-semibold">Front Captured!</h2>
+              <p class="text-slate-400 text-sm mt-1">Now scan the back of the card</p>
+            </div>
+            <img id="front-preview" src="${objectUrl(frontFile)}" class="preview-img" alt="Card front">
+            <div class="flex gap-3 w-full">
+              <button id="btn-retake-front" class="flex-1 py-3 rounded-2xl bg-slate-700 hover:bg-slate-600 active:bg-slate-800 font-medium transition-colors text-sm">
+                Retake Front
+              </button>
+              <button id="btn-back" class="flex-2 flex-1 py-3 rounded-2xl bg-blue-600 hover:bg-blue-500 active:bg-blue-700 font-semibold transition-colors">
+                📷 Scan Back
+              </button>
+            </div>
+          </div>`;
+        document.getElementById('btn-retake-front').onclick = () => { frontFile = null; state = 'initial'; render(); };
+        document.getElementById('btn-back').onclick = () => document.getElementById('back-input').click();
+
+      } else if (state === 'back-captured') {
+        setDots(3);
+        el.innerHTML = `
+          <div class="flex flex-col items-center gap-4 mt-4">
+            <div class="text-center">
+              <h2 class="text-xl font-semibold">Ready to Submit</h2>
+              <p class="text-slate-400 text-sm mt-1">Review both images, then upload</p>
+            </div>
+            <div class="grid grid-cols-2 gap-3 w-full">
+              <div>
+                <p class="text-xs text-slate-400 mb-1 text-center">FRONT</p>
+                <img src="${objectUrl(frontFile)}" class="preview-img" style="max-height:22vh" alt="Front">
+              </div>
+              <div>
+                <p class="text-xs text-slate-400 mb-1 text-center">BACK</p>
+                <img src="${objectUrl(backFile)}" class="preview-img" style="max-height:22vh" alt="Back">
+              </div>
+            </div>
+            <div class="flex gap-3 w-full">
+              <button id="btn-retake-back" class="flex-1 py-3 rounded-2xl bg-slate-700 hover:bg-slate-600 font-medium transition-colors text-sm">
+                Retake Back
+              </button>
+              <button id="btn-submit" class="flex-1 py-3 rounded-2xl bg-green-600 hover:bg-green-500 active:bg-green-700 font-semibold transition-colors">
+                ✅ Submit Card
+              </button>
+            </div>
+          </div>`;
+        document.getElementById('btn-retake-back').onclick = () => { backFile = null; state = 'front-captured'; render(); };
+        document.getElementById('btn-submit').onclick = uploadCard;
+
+      } else if (state === 'uploading') {
+        document.getElementById('step-dots').innerHTML = '';
+        el.innerHTML = `
+          <div class="flex flex-col items-center justify-center gap-6 mt-16">
+            <svg class="spinner w-14 h-14 text-blue-500" viewBox="0 0 24 24" fill="none">
+              <circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="3" stroke-dasharray="32" stroke-dashoffset="10"/>
+            </svg>
+            <div class="text-center">
+              <h2 class="text-xl font-semibold">Uploading…</h2>
+              <p class="text-slate-400 text-sm mt-1">Sending card to be analyzed</p>
+            </div>
+          </div>`;
+
+      } else if (state === 'complete') {
+        document.getElementById('step-dots').innerHTML = '';
+        el.innerHTML = `
+          <div class="flex flex-col items-center gap-6 mt-10 text-center">
+            <div class="text-6xl">🎉</div>
+            <div>
+              <h2 class="text-2xl font-bold">Card Uploaded!</h2>
+              <p class="text-slate-400 text-sm mt-2">Gemini is analyzing your card.<br>It will be ready in the dashboard shortly.</p>
+            </div>
+            <div class="bg-slate-800 rounded-xl px-5 py-3 w-full">
+              <p class="text-xs text-slate-400 mb-1">Card ID</p>
+              <p class="font-mono text-xs text-blue-400 break-all">${resultCardId}</p>
+            </div>
+            <div class="flex flex-col gap-3 w-full">
+              <button id="btn-another" class="w-full py-4 rounded-2xl bg-blue-600 hover:bg-blue-500 font-semibold text-lg transition-colors">
+                📷 Scan Another Card
+              </button>
+              <a href="/" class="block w-full py-3 rounded-2xl bg-slate-700 hover:bg-slate-600 font-medium text-center transition-colors">
+                View Dashboard
+              </a>
+            </div>
+          </div>`;
+        document.getElementById('btn-another').onclick = resetScanner;
+
+      } else if (state === 'error') {
+        document.getElementById('step-dots').innerHTML = '';
+        el.innerHTML = `
+          <div class="flex flex-col items-center gap-6 mt-10 text-center">
+            <div class="text-6xl">❌</div>
+            <div>
+              <h2 class="text-2xl font-bold">Upload Failed</h2>
+              <p class="text-slate-400 text-sm mt-2" id="error-msg"></p>
+            </div>
+            <button id="btn-retry" class="w-full py-4 rounded-2xl bg-blue-600 font-semibold text-lg">
+              Try Again
+            </button>
+          </div>`;
+        document.getElementById('btn-retry').onclick = resetScanner;
+      }
+    }
+
+    // ── Actions ──────────────────────────────────────────────────────────────
+
+    function resetScanner() {
+      frontFile = null; backFile = null; resultCardId = null;
+      state = 'initial';
+      document.getElementById('step-dots').innerHTML = `
+        <div class="step-dot active" id="dot-1"></div>
+        <div class="step-dot" id="dot-2"></div>
+        <div class="step-dot" id="dot-3"></div>`;
+      render();
+    }
+
+    async function uploadCard() {
+      state = 'uploading';
+      render();
+      try {
+        const form = new FormData();
+        form.append('front_image', frontFile, 'front.jpg');
+        form.append('back_image',  backFile,  'back.jpg');
+        const res = await fetch(`${API_BASE}/api/cards/upload`, { method: 'POST', body: form });
+        if (!res.ok) throw new Error(`Server error ${res.status}`);
+        const data = await res.json();
+        resultCardId = data.card_id;
+        state = 'complete';
+      } catch (err) {
+        state = 'error';
+        render();
+        const msg = document.getElementById('error-msg');
+        if (msg) msg.textContent = err.message || 'Unknown error. Please try again.';
+        return;
+      }
+      render();
+    }
+
+    // ── File input listeners ─────────────────────────────────────────────────
+
+    document.getElementById('front-input').addEventListener('change', e => {
+      const file = e.target.files[0];
+      if (file) { frontFile = file; state = 'front-captured'; render(); }
+      e.target.value = '';
+    });
+
+    document.getElementById('back-input').addEventListener('change', e => {
+      const file = e.target.files[0];
+      if (file) { backFile = file; state = 'back-captured'; render(); }
+      e.target.value = '';
+    });
+
+    // ── Init ─────────────────────────────────────────────────────────────────
+    render();
+  </script>
+</body>
+</html>

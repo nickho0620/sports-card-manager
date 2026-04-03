@@ -1,0 +1,26 @@
+# Environment
+.env
+
+# Database
+*.db
+*.db-shm
+*.db-wal
+
+# Uploaded card images (can be large)
+uploads/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+env/
+*.egg-info/
+dist/
+build/
+.pytest_cache/
+
+# OS
+.DS_Store
+Thumbs.db

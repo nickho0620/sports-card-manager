@@ -1,0 +1,17 @@
+services:
+  - type: web
+    name: sports-card-manager
+    runtime: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: GEMINI_API_KEY
+        sync: false          # You will enter this manually in the Render dashboard
+      - key: DATABASE_URL
+        value: sqlite:////data/cards.db
+      - key: UPLOAD_DIR
+        value: /data/uploads
+    disk:
+      name: card-data
+      mountPath: /data
+      sizeGB: 1              # 1 GB free on Render — holds ~5,000+ card images
