@@ -31,6 +31,9 @@
     .filter-btn.active { background:#3b82f6; border-color:#3b82f6; color:#fff; }
     .filter-btn:not(.active) { background:transparent; color:#94a3b8; }
     .filter-btn:not(.active):hover { border-color:#64748b; color:#cbd5e1; }
+    .zoom-bg { position:fixed;inset:0;background:rgba(0,0,0,.92);z-index:60;display:flex;align-items:center;justify-content:center;cursor:zoom-out; }
+    .zoom-bg img { max-width:95vw;max-height:90vh;object-fit:contain;border-radius:8px; }
+    .img-action-btn { padding:4px 12px; border-radius:8px; font-size:12px; font-weight:600; cursor:pointer; transition:all .15s; }
   </style>
 </head>
 <body class="min-h-screen">
@@ -240,34 +243,33 @@
           <button onclick="closeModalDirect()" class="text-slate-400 hover:text-white text-2xl leading-none ml-4">&times;</button>
         </div>
 
-        <!-- Images (clickable to replace) -->
-        <div class="grid grid-cols-2 gap-3 mb-2">
+        <!-- Images with Zoom / Replace buttons -->
+        <div class="grid grid-cols-2 gap-3 mb-5">
           <div>
             <p class="text-xs text-slate-400 mb-1">FRONT</p>
-            <div class="relative group cursor-pointer" onclick="document.getElementById('replace-front-input').click()">
-              ${hasFront
-                ? `<img src="${card.front_image_url}" class="w-full rounded-lg" style="max-height:280px;object-fit:contain;background:#0f172a" alt="Front">`
-                : `<div class="w-full rounded-lg flex items-center justify-center bg-slate-800" style="height:200px"><span class="text-slate-500 text-sm">No front image</span></div>`
-              }
-              <div class="absolute inset-0 bg-black/50 rounded-lg flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
-                <span class="text-white text-sm font-medium">Click to Replace</span>
-              </div>
+            ${hasFront
+              ? `<img src="${card.front_image_url}" class="w-full rounded-lg cursor-zoom-in" style="max-height:280px;object-fit:contain;background:#0f172a" alt="Front"
+                   onclick="zoomImage('${card.front_image_url}')">`
+              : `<div class="w-full rounded-lg flex items-center justify-center bg-slate-800" style="height:200px"><span class="text-slate-500 text-sm">No front image</span></div>`
+            }
+            <div class="flex gap-2 mt-2">
+              ${hasFront ? `<button onclick="zoomImage('${card.front_image_url}')" class="img-action-btn bg-slate-700 hover:bg-slate-600 text-slate-200 flex-1">🔍 Zoom</button>` : ''}
+              <button onclick="document.getElementById('replace-front-input').click()" class="img-action-btn bg-blue-600/30 hover:bg-blue-600/50 text-blue-300 flex-1">📷 Replace</button>
             </div>
           </div>
           <div>
             <p class="text-xs text-slate-400 mb-1">BACK</p>
-            <div class="relative group cursor-pointer" onclick="document.getElementById('replace-back-input').click()">
-              ${hasBack
-                ? `<img src="${card.back_image_url}" class="w-full rounded-lg" style="max-height:280px;object-fit:contain;background:#0f172a" alt="Back">`
-                : `<div class="w-full rounded-lg flex items-center justify-center bg-slate-800" style="height:200px"><span class="text-slate-500 text-sm">No back image</span></div>`
-              }
-              <div class="absolute inset-0 bg-black/50 rounded-lg flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
-                <span class="text-white text-sm font-medium">Click to Replace</span>
-              </div>
+            ${hasBack
+              ? `<img src="${card.back_image_url}" class="w-full rounded-lg cursor-zoom-in" style="max-height:280px;object-fit:contain;background:#0f172a" alt="Back"
+                   onclick="zoomImage('${card.back_image_url}')">`
+              : `<div class="w-full rounded-lg flex items-center justify-center bg-slate-800" style="height:200px"><span class="text-slate-500 text-sm">No back image</span></div>`
+            }
+            <div class="flex gap-2 mt-2">
+              ${hasBack ? `<button onclick="zoomImage('${card.back_image_url}')" class="img-action-btn bg-slate-700 hover:bg-slate-600 text-slate-200 flex-1">🔍 Zoom</button>` : ''}
+              <button onclick="document.getElementById('replace-back-input').click()" class="img-action-btn bg-blue-600/30 hover:bg-blue-600/50 text-blue-300 flex-1">📷 Replace</button>
             </div>
           </div>
         </div>
-        <p class="text-slate-500 text-xs mb-5 text-center">Hover/tap an image to replace it</p>
 
         <!-- Editable Card Details -->
         <div class="flex items-center justify-between mb-2">
@@ -358,6 +360,17 @@
     }
     function closeModalDirect() {
       document.getElementById('modal').classList.add('hidden');
+    }
+
+    function zoomImage(url) {
+      const overlay = document.createElement('div');
+      overlay.className = 'zoom-bg';
+      overlay.onclick = () => overlay.remove();
+      overlay.innerHTML = `<img src="${url}" alt="Zoomed card">`;
+      document.body.appendChild(overlay);
+      // Also close on Escape
+      const esc = (e) => { if (e.key === 'Escape') { overlay.remove(); document.removeEventListener('keydown', esc); } };
+      document.addEventListener('keydown', esc);
     }
 
     function gatherEditFields() {
