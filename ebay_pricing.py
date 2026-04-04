@@ -63,6 +63,8 @@ def build_search_query(card) -> str:
         parts.append(card.set_name)
     if card.player_name:
         parts.append(card.player_name)
+    if getattr(card, 'insert_set', None):
+        parts.append(card.insert_set)
     if card.parallel_name:
         parts.append(card.parallel_name)
     if card.is_autograph:

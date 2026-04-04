@@ -34,6 +34,9 @@
     .zoom-bg { position:fixed;inset:0;background:rgba(0,0,0,.92);z-index:60;display:flex;align-items:center;justify-content:center;cursor:zoom-out; }
     .zoom-bg img { max-width:95vw;max-height:90vh;object-fit:contain;border-radius:8px; }
     .img-action-btn { padding:4px 12px; border-radius:8px; font-size:12px; font-weight:600; cursor:pointer; transition:all .15s; }
+    @keyframes priceFlash { 0%{box-shadow:0 0 0 0 rgba(34,197,94,.7)} 40%{box-shadow:0 0 20px 8px rgba(34,197,94,.5)} 100%{box-shadow:0 0 0 0 transparent} }
+    .price-updated { animation: priceFlash 1.5s ease-out 3; }
+    .reprice-spinner { display:inline-block; width:16px; height:16px; border:2px solid #86efac; border-top-color:transparent; border-radius:50%; animation:spin .8s linear infinite; vertical-align:middle; margin-right:6px; }
   </style>
 </head>
 <body class="min-h-screen">
@@ -282,6 +285,7 @@
           ${editField('Brand', 'brand', card.brand, 'Topps, Panini...')}
           ${editField('Set', 'set_name', card.set_name, 'Prizm, Chrome...')}
           ${editField('Subset', 'subset', card.subset, 'All-Star, Draft...')}
+          ${editField('Insert Set', 'insert_set', card.insert_set, 'Rated Rookie, Silver Pack...')}
           ${editField('Card #', 'card_number', card.card_number, '123')}
           ${editField('Team', 'team', card.team, 'Team name')}
           ${editField('Sport', 'sport', card.sport, 'Baseball')}
@@ -313,7 +317,7 @@
                ${row('High', '$' + card.ebay_high.toFixed(2))}
                ${row('# Sales Found', card.ebay_num_sales)}
                ${row('Search Used', card.ebay_search_query)}
-               ${card.ebay_last_checked ? row('Last Checked', new Date(card.ebay_last_checked).toLocaleString()) : ''}`
+               ${card.ebay_last_checked ? row('Last Checked', new Date(card.ebay_last_checked).toLocaleString('en-US', { timeZone: 'America/New_York', month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true }) + ' EST') : ''}`
             : `<p class="text-slate-500 text-sm py-2">No pricing data yet.</p>`
           }
         </div>
@@ -413,8 +417,33 @@
         body: JSON.stringify(body)
       });
       await fetch('/api/cards/' + id + '/reprice', { method: 'POST' });
-      showToast('Saved & re-pricing in background...');
-      setTimeout(() => { loadCards(); openModal(id); }, 4000);
+
+      // Show repricing indicator in the price box
+      const priceBox = document.querySelector('.bg-green-900\\/40');
+      if (priceBox) {
+        priceBox.innerHTML = `<p class="text-xs text-green-400 uppercase tracking-widest"><span class="reprice-spinner"></span> Repricing...</p>
+          <p class="text-lg text-green-300/50 mt-1">Checking eBay & AI...</p>`;
+      }
+      showToast('Saved! Fetching new price...');
+
+      // Poll until pricing updates, then flash
+      const pollReprice = setInterval(async () => {
+        const res = await fetch('/api/cards/' + id);
+        const card = await res.json();
+        if (card.ebay_last_checked) {
+          clearInterval(pollReprice);
+          loadCards();
+          await openModal(id);
+          // Flash the price box
+          const newPriceBox = document.querySelector('.bg-green-900\\/40');
+          if (newPriceBox) {
+            newPriceBox.classList.add('price-updated');
+            showToast('Price updated: $' + (card.estimated_price ? card.estimated_price.toFixed(2) : '—'));
+          }
+        }
+      }, 2000);
+      // Stop polling after 30s max
+      setTimeout(() => clearInterval(pollReprice), 30000);
     }
 
     async function replaceImage(side, file) {

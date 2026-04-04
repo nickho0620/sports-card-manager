@@ -96,6 +96,7 @@ def card_to_dict(card: Card) -> dict:
         "brand": card.brand,
         "set_name": card.set_name,
         "subset": card.subset,
+        "insert_set": card.insert_set,
         "card_number": card.card_number,
         "team": card.team,
         "sport": card.sport,
@@ -399,7 +400,7 @@ def update_card(card_id: str, body: dict):
     """Update any card field. Supports all detail fields + notes."""
     allowed = {
         "notes", "condition", "estimated_price", "player_name", "year",
-        "brand", "set_name", "team", "description", "subset", "card_number",
+        "brand", "set_name", "team", "description", "subset", "insert_set", "card_number",
         "sport", "is_rookie_card", "is_parallel", "parallel_name", "is_foil",
         "is_autograph", "is_relic", "relic_type", "is_numbered", "print_run",
         "serial_number", "has_alternate_jersey", "jersey_description",
@@ -470,7 +471,7 @@ def export_csv():
         # Header row
         writer.writerow([
             "ID", "Date Added", "Status", "Player", "Year", "Brand", "Set",
-            "Subset", "Card #", "Team", "Sport", "Rookie", "Parallel",
+            "Subset", "Insert Set", "Card #", "Team", "Sport", "Rookie", "Parallel",
             "Parallel Name", "Foil", "Autograph", "Relic", "Relic Type",
             "Numbered", "Print Run", "Serial #", "Alt Jersey",
             "Jersey Desc", "Short Print", "Condition", "Notable Features",
@@ -481,7 +482,7 @@ def export_csv():
         for c in cards:
             writer.writerow([
                 c.id, c.created_at, c.status, c.player_name, c.year,
-                c.brand, c.set_name, c.subset, c.card_number, c.team,
+                c.brand, c.set_name, c.subset, c.insert_set, c.card_number, c.team,
                 c.sport, c.is_rookie_card, c.is_parallel, c.parallel_name,
                 c.is_foil, c.is_autograph, c.is_relic, c.relic_type,
                 c.is_numbered, c.print_run, c.serial_number,
