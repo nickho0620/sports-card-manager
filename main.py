@@ -512,3 +512,30 @@ def export_csv():
 @app.get("/api/health")
 def health():
     return {"status": "ok"}
+
+
+@app.get("/api/debug")
+def debug():
+    """Debug endpoint — shows DB state and any errors."""
+    from sqlalchemy import inspect, text
+    db = SessionLocal()
+    try:
+        inspector = inspect(db.bind)
+        tables = inspector.get_table_names()
+        cols = []
+        if "cards" in tables:
+            cols = [c["name"] for c in inspector.get_columns("cards")]
+        count = db.execute(text("SELECT COUNT(*) FROM cards")).scalar() if "cards" in tables else 0
+        # Try the actual query that's failing
+        error = None
+        try:
+            cards = db.query(Card).limit(1).all()
+            if cards:
+                card_to_dict(cards[0])
+        except Exception as e:
+            error = str(e)
+        return {"tables": tables, "columns": cols, "card_count": count, "error": error}
+    except Exception as e:
+        return {"error": str(e)}
+    finally:
+        db.close()
