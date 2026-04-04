@@ -72,3 +72,22 @@ class Card(Base):
 
 def init_db():
     Base.metadata.create_all(bind=engine)
+    _migrate(engine)
+
+
+def _migrate(eng):
+    """Add any columns that are missing from the existing table."""
+    from sqlalchemy import inspect, text
+    inspector = inspect(eng)
+    if "cards" not in inspector.get_table_names():
+        return
+    existing = {col["name"] for col in inspector.get_columns("cards")}
+    # Map of column_name -> SQL type for columns that may need adding
+    new_columns = {
+        "insert_set": "VARCHAR",
+    }
+    with eng.begin() as conn:
+        for col_name, col_type in new_columns.items():
+            if col_name not in existing:
+                conn.execute(text(f"ALTER TABLE cards ADD COLUMN {col_name} {col_type}"))
+                print(f"[migrate] Added column: {col_name}")
