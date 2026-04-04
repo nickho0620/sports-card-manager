@@ -105,6 +105,14 @@
     let currentSearch = '';
     let pollTimer = null;
 
+    function formatEST(isoStr) {
+      if (!isoStr) return '';
+      return new Date(isoStr).toLocaleString('en-US', {
+        timeZone: 'America/New_York', month: 'short', day: 'numeric',
+        year: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true
+      }) + ' EST';
+    }
+
     // ── Data loading ─────────────────────────────────────────────────────────
 
     async function loadCards() {
@@ -317,17 +325,19 @@
                ${row('High', '$' + card.ebay_high.toFixed(2))}
                ${row('# Sales Found', card.ebay_num_sales)}
                ${row('Search Used', card.ebay_search_query)}
-               ${card.ebay_last_checked ? row('Last Checked', new Date(card.ebay_last_checked).toLocaleString('en-US', { timeZone: 'America/New_York', month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true }) + ' EST') : ''}`
+               ${card.ebay_last_checked ? row('Last Checked', formatEST(card.ebay_last_checked)) : ''}`
             : `<p class="text-slate-500 text-sm py-2">No pricing data yet.</p>`
           }
         </div>
 
         ${card.estimated_price
-          ? `<div class="bg-green-900/40 border border-green-700 rounded-xl p-4 mb-5 text-center">
+          ? `<div id="price-box" class="bg-green-900/40 border border-green-700 rounded-xl p-4 mb-5 text-center">
                <p class="text-xs text-green-400 uppercase tracking-widest">Estimated Sell Price</p>
                <p class="text-3xl font-bold text-green-300 mt-1">$${card.estimated_price.toFixed(2)}</p>
              </div>`
-          : ''
+          : `<div id="price-box" class="bg-slate-800 border border-slate-700 rounded-xl p-4 mb-5 text-center">
+               <p class="text-xs text-slate-500">No price yet</p>
+             </div>`
         }
 
         <!-- Notes -->
@@ -419,7 +429,7 @@
       await fetch('/api/cards/' + id + '/reprice', { method: 'POST' });
 
       // Show repricing indicator in the price box
-      const priceBox = document.querySelector('.bg-green-900\\/40');
+      const priceBox = document.querySelector('#price-box');
       if (priceBox) {
         priceBox.innerHTML = `<p class="text-xs text-green-400 uppercase tracking-widest"><span class="reprice-spinner"></span> Repricing...</p>
           <p class="text-lg text-green-300/50 mt-1">Checking eBay & AI...</p>`;
@@ -435,7 +445,7 @@
           loadCards();
           await openModal(id);
           // Flash the price box
-          const newPriceBox = document.querySelector('.bg-green-900\\/40');
+          const newPriceBox = document.querySelector('#price-box');
           if (newPriceBox) {
             newPriceBox.classList.add('price-updated');
             showToast('Price updated: $' + (card.estimated_price ? card.estimated_price.toFixed(2) : '—'));

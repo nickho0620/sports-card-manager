@@ -104,6 +104,7 @@
     let frontFile = null;
     let backFile  = null;
     let resultCardId = null;
+    let useScanMode = false;  // true when images come from live camera scanner
 
     // ── Live Camera Scanner ──────────────────────────────────────────────────
 
@@ -113,6 +114,7 @@
 
     async function openCamera(side) {
       cameraSide = side;
+      useScanMode = true;
       const video = document.getElementById('camera-video');
       const overlay = document.getElementById('camera-overlay');
       const label = document.getElementById('camera-label');
@@ -365,7 +367,8 @@
         const form = new FormData();
         if (frontFile) form.append('front_image', frontFile, 'front.jpg');
         if (backFile)  form.append('back_image',  backFile,  'back.jpg');
-        const res = await fetch(`${API_BASE}/api/cards/upload`, { method: 'POST', body: form });
+        const url = useScanMode ? `${API_BASE}/api/cards/upload?scan_mode=true` : `${API_BASE}/api/cards/upload`;
+        const res = await fetch(url, { method: 'POST', body: form });
         if (!res.ok) throw new Error(`Server error ${res.status}`);
         const data = await res.json();
         resultCardId = data.card_id;

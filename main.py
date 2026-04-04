@@ -27,6 +27,7 @@ from sqlalchemy import or_
 from card_analyzer import analyze_card
 from database import Card, SessionLocal, init_db
 from ebay_pricing import get_ebay_pricing
+from image_processor import process_card_scan
 
 # ── App Setup ────────────────────────────────────────────────────────────────
 
@@ -291,6 +292,7 @@ async def update_card_image(
     background_tasks: BackgroundTasks,
     image: UploadFile = File(...),
     reanalyze: bool = Query(default=False),
+    scan_mode: bool = Query(default=False),
 ):
     """Replace front or back image for an existing card."""
     if side not in ("front", "back"):
@@ -302,7 +304,8 @@ async def update_card_image(
         if not card:
             raise HTTPException(status_code=404, detail="Card not found")
 
-        img_bytes = _resize_image_bytes(await image.read())
+        raw = await image.read()
+        img_bytes = process_card_scan(raw) if scan_mode else _resize_image_bytes(raw)
 
         if USE_CLOUDINARY:
             result = cloudinary.uploader.upload(
@@ -336,8 +339,9 @@ async def upload_card(
     background_tasks: BackgroundTasks,
     front_image: UploadFile = File(None),
     back_image: UploadFile = File(None),
+    scan_mode: bool = Query(default=False),
 ):
-    """Receive front and/or back images. At least one required."""
+    """Receive front and/or back images. At least one required. scan_mode applies edge detection + perspective correction."""
     if not front_image and not back_image:
         raise HTTPException(status_code=400, detail="At least one image is required")
 
@@ -346,7 +350,8 @@ async def upload_card(
     back_path = None
 
     if front_image:
-        front_bytes = _resize_image_bytes(await front_image.read())
+        raw = await front_image.read()
+        front_bytes = process_card_scan(raw) if scan_mode else _resize_image_bytes(raw)
         if USE_CLOUDINARY:
             result = cloudinary.uploader.upload(
                 front_bytes, folder=f"cards/{card_id}", public_id="front",
@@ -362,7 +367,8 @@ async def upload_card(
             front_path = fp
 
     if back_image:
-        back_bytes = _resize_image_bytes(await back_image.read())
+        raw = await back_image.read()
+        back_bytes = process_card_scan(raw) if scan_mode else _resize_image_bytes(raw)
         if USE_CLOUDINARY:
             result = cloudinary.uploader.upload(
                 back_bytes, folder=f"cards/{card_id}", public_id="back",
