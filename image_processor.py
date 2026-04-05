@@ -89,21 +89,17 @@ def _perspective_transform(img_cv, pts):
 
 def _enhance_scan(pil_img):
     """Apply color/contrast/sharpness enhancement to look like a clean scan."""
-    # Boost contrast slightly
+    # Light contrast boost
     enhancer = ImageEnhance.Contrast(pil_img)
-    pil_img = enhancer.enhance(1.15)
+    pil_img = enhancer.enhance(1.08)
 
-    # Bump up color saturation
+    # Subtle color saturation bump
     enhancer = ImageEnhance.Color(pil_img)
-    pil_img = enhancer.enhance(1.1)
-
-    # Increase brightness just a touch
-    enhancer = ImageEnhance.Brightness(pil_img)
     pil_img = enhancer.enhance(1.05)
 
-    # Sharpen
+    # Gentle sharpening
     enhancer = ImageEnhance.Sharpness(pil_img)
-    pil_img = enhancer.enhance(1.5)
+    pil_img = enhancer.enhance(1.2)
 
     return pil_img
 
@@ -164,13 +160,17 @@ def process_card_scan(img_bytes: bytes) -> bytes:
     if img_cv is None:
         return img_bytes  # Can't decode — return original
 
-    # Step 1 & 2: Find card and correct perspective
+    # Step 1 & 2: Find card and correct perspective (only if very confident)
     card_pts = _find_card_contour(img_cv)
     if card_pts is not None:
-        img_cv = _perspective_transform(img_cv, card_pts)
-
-    # Step 3: Remove background
-    img_cv = _remove_background(img_cv)
+        area = cv2.contourArea(card_pts)
+        img_area = img_cv.shape[0] * img_cv.shape[1]
+        # Only warp if the detected card is 25-90% of the image
+        # (too small = probably wrong, too big = already cropped well)
+        if 0.25 < (area / img_area) < 0.90:
+            img_cv = _perspective_transform(img_cv, card_pts)
+            # Only remove background after a confident perspective transform
+            img_cv = _remove_background(img_cv)
 
     # Convert to PIL for enhancement
     img_rgb = cv2.cvtColor(img_cv, cv2.COLOR_BGR2RGB)
