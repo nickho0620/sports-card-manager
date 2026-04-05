@@ -1,7 +1,8 @@
 """
-eBay pricing — scrapes eBay sold listings for real prices,
-falls back to Claude AI estimate when scraping fails.
+eBay pricing — uses the eBay Browse API for active listing prices,
+scrapes sold listings as a secondary source, and falls back to Claude AI estimate.
 """
+import base64
 import json
 import os
 import re
@@ -13,7 +14,16 @@ import anthropic
 import requests
 from bs4 import BeautifulSoup
 
-HEADERS = {
+# ── eBay API config ─────────────────────────────────────────────────────────
+
+EBAY_CLIENT_ID = os.getenv("EBAY_CLIENT_ID")
+EBAY_CLIENT_SECRET = os.getenv("EBAY_CLIENT_SECRET")
+EBAY_TOKEN_URL = "https://api.ebay.com/identity/v1/oauth2/token"
+EBAY_BROWSE_URL = "https://api.ebay.com/buy/browse/v1/item_summary/search"
+
+_ebay_token_cache = {"token": None, "expires_at": 0}
+
+SCRAPE_HEADERS = {
     "User-Agent": (
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
         "AppleWebKit/537.36 (KHTML, like Gecko) "
@@ -99,13 +109,205 @@ def build_search_query(card) -> str:
 
 
 def build_search_url(query: str) -> str:
-    """Build the eBay sold listings search URL."""
+    """Build the eBay sold listings search URL for manual verification."""
     return (
         f"https://www.ebay.com/sch/i.html"
         f"?_nkw={quote_plus(query)}"
         f"&LH_Sold=1&LH_Complete=1&_sop=13"
     )
 
+
+# ── eBay Browse API ─────────────────────────────────────────────────────────
+
+def _get_ebay_token() -> str | None:
+    """Get an OAuth2 token using client credentials. Caches until expiry."""
+    if not EBAY_CLIENT_ID or not EBAY_CLIENT_SECRET:
+        return None
+
+    now = time.time()
+    if _ebay_token_cache["token"] and now < _ebay_token_cache["expires_at"] - 60:
+        return _ebay_token_cache["token"]
+
+    credentials = base64.b64encode(
+        f"{EBAY_CLIENT_ID}:{EBAY_CLIENT_SECRET}".encode()
+    ).decode()
+
+    try:
+        resp = requests.post(
+            EBAY_TOKEN_URL,
+            headers={
+                "Content-Type": "application/x-www-form-urlencoded",
+                "Authorization": f"Basic {credentials}",
+            },
+            data={
+                "grant_type": "client_credentials",
+                "scope": "https://api.ebay.com/oauth/api_scope",
+            },
+            timeout=10,
+        )
+        resp.raise_for_status()
+        data = resp.json()
+        _ebay_token_cache["token"] = data["access_token"]
+        _ebay_token_cache["expires_at"] = now + data.get("expires_in", 7200)
+        return data["access_token"]
+    except Exception:
+        return None
+
+
+def _get_ebay_api_pricing(card) -> dict | None:
+    """Use the eBay Browse API to get active listing prices."""
+    token = _get_ebay_token()
+    if not token:
+        return None
+
+    query = build_search_query(card)
+    if not query.strip():
+        return None
+
+    try:
+        resp = requests.get(
+            EBAY_BROWSE_URL,
+            headers={
+                "Authorization": f"Bearer {token}",
+                "X-EBAY-C-MARKETPLACE-ID": "EBAY_US",
+            },
+            params={
+                "q": query,
+                "limit": 25,
+                "sort": "newlyListed",
+                "filter": "buyingOptions:{FIXED_PRICE}",
+            },
+            timeout=15,
+        )
+        resp.raise_for_status()
+        data = resp.json()
+    except Exception:
+        return None
+
+    items = data.get("itemSummaries", [])
+    if not items:
+        return None
+
+    prices = []
+    for item in items:
+        price_info = item.get("price", {})
+        try:
+            val = float(price_info.get("value", 0))
+            currency = price_info.get("currency", "USD")
+            if currency == "USD" and 0.25 < val < 50_000:
+                prices.append(val)
+        except (ValueError, TypeError):
+            continue
+
+    if not prices:
+        return None
+
+    # Remove outliers: drop prices more than 3x the median
+    if len(prices) >= 5:
+        med = statistics.median(prices)
+        prices = [p for p in prices if p <= med * 3]
+
+    if not prices:
+        return None
+
+    return {
+        "avg": round(statistics.mean(prices), 2),
+        "median": round(statistics.median(prices), 2),
+        "low": round(min(prices), 2),
+        "high": round(max(prices), 2),
+        "num_sales": len(prices),
+        "search_query": query,
+        "search_url": build_search_url(query),
+        "source": "ebay_api",
+    }
+
+
+# ── eBay Scraping (sold listings) ──────────────────────────────────────────
+
+def _extract_prices(soup: BeautifulSoup) -> list[float]:
+    """Parse sold prices out of an eBay search results page."""
+    prices = []
+    items = soup.select(".s-item")
+
+    for item in items:
+        # Skip the first "Shop on eBay" placeholder item
+        title_el = item.select_one(".s-item__title")
+        if title_el:
+            title_text = title_el.get_text(strip=True)
+            if title_text == "Shop on eBay" or title_text == "":
+                continue
+
+        # Skip items with "to" price ranges
+        price_el = item.select_one(".s-item__price")
+        if not price_el:
+            continue
+        text = price_el.get_text(strip=True)
+        if " to " in text.lower():
+            continue
+
+        match = re.search(r"\$([0-9,]+\.?[0-9]*)", text)
+        if match:
+            try:
+                price = float(match.group(1).replace(",", ""))
+                if 0.25 < price < 50_000:
+                    prices.append(price)
+            except ValueError:
+                pass
+    return prices
+
+
+def _get_ebay_scrape_pricing(card, max_results: int = 25) -> dict | None:
+    """Try to scrape eBay sold listings. Returns None on failure."""
+    query = build_search_query(card)
+    if not query.strip():
+        return None
+
+    url = build_search_url(query)
+
+    session = requests.Session()
+    session.headers.update(SCRAPE_HEADERS)
+
+    try:
+        time.sleep(1)
+        resp = session.get(url, timeout=20)
+        resp.raise_for_status()
+    except requests.RequestException:
+        return None
+
+    if len(resp.text) < 5000:
+        return None
+
+    soup = BeautifulSoup(resp.text, "html.parser")
+
+    if soup.select_one("#captcha") or "please verify" in resp.text.lower():
+        return None
+
+    prices = _extract_prices(soup)[:max_results]
+
+    if not prices:
+        return None
+
+    # Remove outliers
+    if len(prices) >= 5:
+        med = statistics.median(prices)
+        prices = [p for p in prices if p <= med * 3]
+
+    if not prices:
+        return None
+
+    return {
+        "avg": round(statistics.mean(prices), 2),
+        "median": round(statistics.median(prices), 2),
+        "low": round(min(prices), 2),
+        "high": round(max(prices), 2),
+        "num_sales": len(prices),
+        "search_query": query,
+        "search_url": url,
+        "source": "ebay_sold",
+    }
+
+
+# ── AI Estimate (fallback) ─────────────────────────────────────────────────
 
 def _get_ai_pricing(card) -> dict | None:
     """Use Claude to estimate card value based on market knowledge."""
@@ -154,100 +356,24 @@ def _get_ai_pricing(card) -> dict | None:
         return None
 
 
-def _extract_prices(soup: BeautifulSoup) -> list[float]:
-    """Parse sold prices out of an eBay search results page."""
-    prices = []
-    items = soup.select(".s-item")
-
-    for item in items:
-        # Skip the first "Shop on eBay" placeholder item
-        title_el = item.select_one(".s-item__title")
-        if title_el:
-            title_text = title_el.get_text(strip=True)
-            if title_text == "Shop on eBay" or title_text == "":
-                continue
-
-        # Skip items with "to" price ranges (e.g. "$5.00 to $25.00")
-        price_el = item.select_one(".s-item__price")
-        if not price_el:
-            continue
-        text = price_el.get_text(strip=True)
-        if " to " in text.lower():
-            continue
-
-        match = re.search(r"\$([0-9,]+\.?[0-9]*)", text)
-        if match:
-            try:
-                price = float(match.group(1).replace(",", ""))
-                if 0.25 < price < 50_000:
-                    prices.append(price)
-            except ValueError:
-                pass
-    return prices
-
-
-def _get_ebay_pricing(card, max_results: int = 25) -> dict | None:
-    """Try to scrape eBay sold listings. Returns None on failure."""
-    query = build_search_query(card)
-    if not query.strip():
-        return None
-
-    url = build_search_url(query)
-
-    # Use a session for better connection handling
-    session = requests.Session()
-    session.headers.update(HEADERS)
-
-    try:
-        time.sleep(1)
-        resp = session.get(url, timeout=20)
-        resp.raise_for_status()
-    except requests.RequestException:
-        return None
-
-    # Check if we got a real results page (not captcha/redirect)
-    if len(resp.text) < 5000:
-        return None
-
-    soup = BeautifulSoup(resp.text, "html.parser")
-
-    # Check for captcha or block page
-    if soup.select_one("#captcha") or "please verify" in resp.text.lower():
-        return None
-
-    prices = _extract_prices(soup)[:max_results]
-
-    if not prices:
-        return None
-
-    # Remove outliers: drop prices more than 3x the median
-    if len(prices) >= 5:
-        med = statistics.median(prices)
-        prices = [p for p in prices if p <= med * 3]
-
-    if not prices:
-        return None
-
-    return {
-        "avg": round(statistics.mean(prices), 2),
-        "median": round(statistics.median(prices), 2),
-        "low": round(min(prices), 2),
-        "high": round(max(prices), 2),
-        "num_sales": len(prices),
-        "search_query": query,
-        "search_url": url,
-        "source": "ebay_sold",
-    }
-
+# ── Main entry point ────────────────────────────────────────────────────────
 
 def get_ebay_pricing(card) -> dict | None:
     """
-    Get pricing for a card. Tries eBay scraping first, falls back to Claude AI estimate.
+    Get pricing for a card. Tries in order:
+    1. eBay scraping (sold listings — real sale prices)
+    2. eBay Browse API (active listings — what's currently listed)
+    3. Claude AI estimate (fallback)
     """
-    # Try eBay scraping first
-    result = _get_ebay_pricing(card)
+    # Try scraping sold listings first (real sale prices)
+    result = _get_ebay_scrape_pricing(card)
     if result:
         return result
 
-    # Fall back to AI-based pricing
+    # Fall back to eBay API (active listings, clearly labeled)
+    result = _get_ebay_api_pricing(card)
+    if result:
+        return result
+
+    # Last resort: AI estimate
     return _get_ai_pricing(card)
