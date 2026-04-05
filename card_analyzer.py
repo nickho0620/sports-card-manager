@@ -13,35 +13,51 @@ from PIL import Image
 
 CLAUDE_MODEL = os.getenv("CLAUDE_MODEL", "claude-sonnet-4-20250514")
 
-ANALYSIS_PROMPT = """You are an expert sports card grader and identifier.
-Analyze the front and back of this card and return ONLY a valid JSON object — no markdown, no explanation.
+ANALYSIS_PROMPT = """You are an expert sports card grader, identifier, and cataloger with encyclopedic knowledge of all card sets, inserts, parallels, and product codes.
 
-Extract every detail you can see:
+CRITICAL STEP — READ ALL CODES AND FINE PRINT ON THE BACK FIRST:
+Look at the BACK of the card carefully. Read ALL text, especially the smallest print at the bottom. You are looking for:
+1. PRODUCT CODE — a code like "CMP097855", "CODE#CMP097855", or similar alphanumeric string. This is a manufacturer catalog code that uniquely identifies the product/set/release. Transcribe it EXACTLY.
+2. SET/INSERT CODE — a short code before the card number (e.g. "T88-10" means the "T88" 1988 Topps insert, card #10; "BCP-42" = Bowman Chrome Prospects #42; "PSC" = Prizm Silver Chrome). This identifies the specific insert or subset.
+3. COPYRIGHT YEAR — text like "© 2024 Topps" or "© 2025 Panini" — this is the ACTUAL release year. Do NOT guess the year from player stats.
+4. SET NAME — often printed in a header, footer, or alongside the card number (e.g. "TOPPS CHROME", "DONRUSS RATED ROOKIE", "PRIZM", "1990 TOPPS CHROME SILVER PACK").
+5. CARD NUMBER — e.g. "#123", "BCP-42", "T88-10"
+Read EVERY piece of fine print on the back before making your identification.
+
+Also examine:
+- The FRONT for: card design style, border color/pattern, foil stamps, holographic effects, refractor rainbow patterns, numbered stamps (like /25, /50, /99), autograph stickers or on-card autos, jersey/patch swatches, RC logo, the uniform the player is wearing.
+- The BACK for: the card number (e.g. "#123" or "BCP-42"), the set name in the header or footer, copyright year, product code, any "PARALLEL" or "INSERT" text, print run stamps.
+
+Use ALL of this information to identify the EXACT card. Do not guess the year from the player's stats — use the copyright year on the back.
+
+Return ONLY a valid JSON object — no markdown, no explanation:
 {
   "player_name": "Full player name, or null",
-  "year": <4-digit integer or null>,
+  "year": <4-digit integer from the copyright year on the back, or null>,
   "brand": "Topps / Panini / Upper Deck / Bowman / Donruss / Fleer / Score / Leaf / etc., or null",
-  "set_name": "e.g. Prizm, Chrome, Stadium Club, Heritage, Finest, Select, Mosaic, etc., or null",
-  "subset": "e.g. All-Star, Draft Picks, or null",
-  "card_number": "card number as printed, or null",
+  "set_name": "The specific set name (e.g. 'Topps Chrome', 'Prizm', 'Stadium Club', 'Bowman 1st', 'Donruss Rated Rookie', 'Select', 'Mosaic') — NOT just the brand, or null",
+  "subset": "e.g. All-Star, Draft Picks, Rookie Debut, or null",
+  "insert_set": "If this is an insert card, the insert set name (e.g. '1989 Topps', 'Silver Pack Mojo', 'Finest Flashbacks', '1990 Topps Chrome', 'Wander Franco Generation Now') — use the product code to identify this, or null",
+  "card_number": "Card number/ID exactly as printed (e.g. '123', 'BCP-42', 'T88-10', 'MLMAR-CB'). Include the full alphanumeric code — the prefix often identifies the insert set (e.g. MLMAR = Major League Marquee, T88 = 1988 Topps insert), or null",
   "team": "team name, or null",
   "sport": "Baseball / Basketball / Football / Hockey / Soccer / Other",
+  "product_code": "The manufacturer/catalog code from the back (e.g. 'CMP097855', 'CODE#CMP097855') — transcribe EXACTLY as printed, or null",
   "is_rookie_card": true or false,
   "is_parallel": true or false,
-  "parallel_name": "e.g. Gold, Rainbow Foil, Prizm Silver, Refractor, Holo, Scope, Disco, etc., or null",
+  "parallel_name": "Be specific — e.g. 'Gold /2024', 'Rainbow Foil', 'Prizm Silver', 'Refractor', 'Holo', 'Scope', 'Speckle', 'Disco', 'Mojo', 'Green Shimmer', 'Red /199', 'Blue /150', 'Purple /75', or null. LOOK for visual cues: rainbow sheen = refractor, colored border = color parallel, sparkle = foil/shimmer",
   "is_foil": true or false,
   "is_autograph": true or false,
   "is_relic": true or false,
   "relic_type": "Jersey / Patch / Bat / Ball / Glove / etc., or null",
   "is_numbered": true or false,
-  "print_run": <integer — the total print run e.g. 25 for /25, or null>,
-  "serial_number": "the stamped number as shown e.g. '15/25', or null",
+  "print_run": <integer — the total from the stamp e.g. 25 for /25, or null>,
+  "serial_number": "the stamped number exactly as shown e.g. '15/25', or null",
   "has_alternate_jersey": true or false,
-  "jersey_description": "e.g. City Connect, All-Star, Throwback, Spring Training, or null",
+  "jersey_description": "e.g. City Connect, All-Star, Throwback, Spring Training, Players Weekend, or null",
   "is_short_print": true or false,
-  "condition": "Mint / Near Mint / Excellent / Very Good / Good / Poor  (visual estimate only)",
+  "condition": "Mint / Near Mint / Excellent / Very Good / Good / Poor  (visual estimate — look at centering, corners, edges, surface)",
   "notable_features": "Any other notable features as a plain string, or null",
-  "description": "1-2 sentence plain-English summary of the card"
+  "description": "1-2 sentence summary including the exact set identification (e.g. '2024 Topps Series 1 1989 Topps Silver Pack Chrome insert of Juan Soto')"
 }"""
 
 

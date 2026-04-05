@@ -34,6 +34,7 @@ class Card(Base):
     set_name = Column(String)    # Prizm, Chrome, Stadium Club, Heritage …
     subset = Column(String)      # All-Star, Draft Picks …
     insert_set = Column(String)  # Rated Rookie, Silver Pack, Mojo …
+    product_code = Column(String)  # Code from back of card (T88, PSC, BCP…)
     card_number = Column(String)
     team = Column(String)
     sport = Column(String)       # Baseball, Basketball, Football …
@@ -85,6 +86,7 @@ def _migrate(eng):
     # Map of column_name -> SQL type for columns that may need adding
     new_columns = {
         "insert_set": "VARCHAR",
+        "product_code": "VARCHAR",
     }
     with eng.begin() as conn:
         for col_name, col_type in new_columns.items():
