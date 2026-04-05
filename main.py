@@ -127,6 +127,8 @@ def card_to_dict(card: Card) -> dict:
         "ebay_num_sales": card.ebay_num_sales,
         "ebay_last_checked": (card.ebay_last_checked.isoformat() + "Z") if card.ebay_last_checked else None,
         "ebay_search_query": card.ebay_search_query,
+        "ebay_search_url": card.ebay_search_url,
+        "pricing_source": card.pricing_source,
         # Meta
         "notes": card.notes,
     }
@@ -182,6 +184,8 @@ def process_card(card_id: str):
                 card.ebay_num_sales = pricing["num_sales"]
                 card.ebay_last_checked = datetime.utcnow()
                 card.ebay_search_query = pricing["search_query"]
+                card.ebay_search_url = pricing.get("search_url")
+                card.pricing_source = pricing.get("source")
                 card.estimated_price = pricing["avg"]
         except Exception:
             pass  # Pricing failure is non-fatal
@@ -208,6 +212,8 @@ def refresh_pricing(card_id: str):
             card.ebay_num_sales = pricing["num_sales"]
             card.ebay_last_checked = datetime.utcnow()
             card.ebay_search_query = pricing["search_query"]
+            card.ebay_search_url = pricing.get("search_url")
+            card.pricing_source = pricing.get("source")
             card.estimated_price = pricing["avg"]
             db.commit()
     finally:
@@ -484,7 +490,7 @@ def export_csv():
             "Numbered", "Print Run", "Serial #", "Alt Jersey",
             "Jersey Desc", "Short Print", "Condition", "Notable Features",
             "Description", "Est. Price", "eBay Avg", "eBay Low", "eBay High",
-            "eBay # Sales", "eBay Last Checked", "Notes",
+            "eBay # Sales", "eBay Last Checked", "Pricing Source", "Notes",
         ])
 
         for c in cards:
@@ -498,7 +504,7 @@ def export_csv():
                 c.is_short_print, c.condition, c.notable_features,
                 c.description, c.estimated_price, c.ebay_avg_sale,
                 c.ebay_low, c.ebay_high, c.ebay_num_sales,
-                c.ebay_last_checked, c.notes,
+                c.ebay_last_checked, c.pricing_source, c.notes,
             ])
 
         output.seek(0)

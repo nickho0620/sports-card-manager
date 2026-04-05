@@ -65,6 +65,8 @@ class Card(Base):
     ebay_num_sales = Column(Integer)
     ebay_last_checked = Column(DateTime)
     ebay_search_query = Column(String)
+    ebay_search_url = Column(String)   # Direct eBay link for manual verification
+    pricing_source = Column(String)    # "ebay_sold" or "ai_estimate"
 
     # ── Raw Data ─────────────────────────────────────────────────────────────
     raw_analysis = Column(Text)   # full JSON from Gemini
@@ -87,6 +89,8 @@ def _migrate(eng):
     new_columns = {
         "insert_set": "VARCHAR",
         "product_code": "VARCHAR",
+        "ebay_search_url": "VARCHAR",
+        "pricing_source": "VARCHAR",
     }
     with eng.begin() as conn:
         for col_name, col_type in new_columns.items():

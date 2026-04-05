@@ -1,6 +1,6 @@
 """
-eBay pricing — uses Claude to estimate card value based on market knowledge,
-with eBay scraping as a secondary data source when available.
+eBay pricing — scrapes eBay sold listings for real prices,
+falls back to Claude AI estimate when scraping fails.
 """
 import json
 import os
@@ -17,14 +17,27 @@ HEADERS = {
     "User-Agent": (
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
         "AppleWebKit/537.36 (KHTML, like Gecko) "
-        "Chrome/124.0.0.0 Safari/537.36"
+        "Chrome/125.0.0.0 Safari/537.36"
     ),
     "Accept-Language": "en-US,en;q=0.9",
-    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
+    "Accept-Encoding": "gzip, deflate, br",
+    "Referer": "https://www.ebay.com/",
+    "DNT": "1",
+    "Connection": "keep-alive",
+    "Upgrade-Insecure-Requests": "1",
+    "Sec-Fetch-Dest": "document",
+    "Sec-Fetch-Mode": "navigate",
+    "Sec-Fetch-Site": "same-origin",
+    "Sec-Fetch-User": "?1",
 }
 
 PRICING_PROMPT = """You are an expert sports card pricing analyst. Based on the following card details,
 estimate the current market value for this card sold on eBay as a single ungraded card.
+
+IMPORTANT: Be conservative. Most modern base cards (2020+) sell for $0.50-$3.00.
+Common inserts sell for $1-5. Only star players, rookies, numbered parallels, and autos command higher prices.
+Do NOT overestimate — a wrong high estimate is worse than a wrong low estimate for a seller.
 
 Card details:
 - Player: {player_name}
@@ -85,6 +98,15 @@ def build_search_query(card) -> str:
     return " ".join(parts)
 
 
+def build_search_url(query: str) -> str:
+    """Build the eBay sold listings search URL."""
+    return (
+        f"https://www.ebay.com/sch/i.html"
+        f"?_nkw={quote_plus(query)}"
+        f"&LH_Sold=1&LH_Complete=1&_sop=13"
+    )
+
+
 def _get_ai_pricing(card) -> dict | None:
     """Use Claude to estimate card value based on market knowledge."""
     api_key = os.getenv("ANTHROPIC_API_KEY")
@@ -110,6 +132,8 @@ def _get_ai_pricing(card) -> dict | None:
         condition=card.condition or "Unknown",
     )
 
+    query = build_search_query(card)
+
     try:
         response = client.messages.create(
             model="claude-sonnet-4-20250514",
@@ -122,7 +146,8 @@ def _get_ai_pricing(card) -> dict | None:
             inner = lines[1:-1] if lines[-1].strip() == "```" else lines[1:]
             text = "\n".join(inner).strip()
         result = json.loads(text)
-        result["search_query"] = build_search_query(card)
+        result["search_query"] = query
+        result["search_url"] = build_search_url(query)
         result["source"] = "ai_estimate"
         return result
     except Exception:
@@ -132,17 +157,24 @@ def _get_ai_pricing(card) -> dict | None:
 def _extract_prices(soup: BeautifulSoup) -> list[float]:
     """Parse sold prices out of an eBay search results page."""
     prices = []
-    price_selectors = [".s-item__price", ".srp-item__price", "[data-testid='item-price']"]
-    items = soup.select(".s-item, .srp-results .srp-item")
+    items = soup.select(".s-item")
+
     for item in items:
-        price_el = None
-        for sel in price_selectors:
-            price_el = item.select_one(sel)
-            if price_el:
-                break
+        # Skip the first "Shop on eBay" placeholder item
+        title_el = item.select_one(".s-item__title")
+        if title_el:
+            title_text = title_el.get_text(strip=True)
+            if title_text == "Shop on eBay" or title_text == "":
+                continue
+
+        # Skip items with "to" price ranges (e.g. "$5.00 to $25.00")
+        price_el = item.select_one(".s-item__price")
         if not price_el:
             continue
         text = price_el.get_text(strip=True)
+        if " to " in text.lower():
+            continue
+
         match = re.search(r"\$([0-9,]+\.?[0-9]*)", text)
         if match:
             try:
@@ -160,21 +192,38 @@ def _get_ebay_pricing(card, max_results: int = 25) -> dict | None:
     if not query.strip():
         return None
 
-    url = (
-        f"https://www.ebay.com/sch/i.html"
-        f"?_nkw={quote_plus(query)}"
-        f"&LH_Sold=1&LH_Complete=1&_sop=13"
-    )
+    url = build_search_url(query)
+
+    # Use a session for better connection handling
+    session = requests.Session()
+    session.headers.update(HEADERS)
 
     try:
         time.sleep(1)
-        resp = requests.get(url, headers=HEADERS, timeout=20)
+        resp = session.get(url, timeout=20)
         resp.raise_for_status()
     except requests.RequestException:
         return None
 
+    # Check if we got a real results page (not captcha/redirect)
+    if len(resp.text) < 5000:
+        return None
+
     soup = BeautifulSoup(resp.text, "html.parser")
+
+    # Check for captcha or block page
+    if soup.select_one("#captcha") or "please verify" in resp.text.lower():
+        return None
+
     prices = _extract_prices(soup)[:max_results]
+
+    if not prices:
+        return None
+
+    # Remove outliers: drop prices more than 3x the median
+    if len(prices) >= 5:
+        med = statistics.median(prices)
+        prices = [p for p in prices if p <= med * 3]
 
     if not prices:
         return None
@@ -186,6 +235,7 @@ def _get_ebay_pricing(card, max_results: int = 25) -> dict | None:
         "high": round(max(prices), 2),
         "num_sales": len(prices),
         "search_query": query,
+        "search_url": url,
         "source": "ebay_sold",
     }
 
