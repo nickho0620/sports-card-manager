@@ -522,6 +522,19 @@ def health():
     return {"status": "ok"}
 
 
+EBAY_VERIFICATION_TOKEN = os.getenv("EBAY_VERIFICATION_TOKEN", "sportscardmanager2026")
+
+
+@app.get("/api/ebay/account-deletion")
+def ebay_account_deletion_challenge(challenge_code: str = Query(default="")):
+    """eBay verification challenge — echoes back the challenge code."""
+    import hashlib
+    endpoint = "https://sports-card-manager.onrender.com/api/ebay/account-deletion"
+    hash_input = challenge_code + EBAY_VERIFICATION_TOKEN + endpoint
+    response_hash = hashlib.sha256(hash_input.encode()).hexdigest()
+    return {"challengeResponse": response_hash}
+
+
 @app.post("/api/ebay/account-deletion")
 def ebay_account_deletion(body: dict = {}):
     """eBay Marketplace Account Deletion webhook — required for eBay API compliance.
