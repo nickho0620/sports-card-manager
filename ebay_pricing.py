@@ -154,6 +154,39 @@ def _get_ebay_token() -> str | None:
         return None
 
 
+GRADED_KEYWORDS = {"psa", "bgs", "sgc", "cgc", "graded", "slab", "slabbed", "gem mint", "beckett"}
+PARALLEL_KEYWORDS = {
+    "refractor", "prizm", "holo", "gold", "silver", "blue", "red", "green",
+    "orange", "purple", "pink", "black", "white", "mojo", "shimmer", "speckle",
+    "scope", "disco", "wave", "camo", "tiger", "snakeskin", "lava", "ice",
+    "chrome", "foil", "rainbow", "optic", "hyper", "neon",
+}
+
+
+def _should_skip_listing(title: str, card) -> bool:
+    """Check if a listing title should be excluded from pricing."""
+    title_lower = title.lower()
+
+    # Always skip graded cards
+    for kw in GRADED_KEYWORDS:
+        if kw in title_lower:
+            return True
+
+    # Skip lot listings
+    if re.search(r'\b(lot|bundle|set of|x\d+|\d+x)\b', title_lower):
+        return True
+
+    # If our card is NOT a parallel, skip listings that mention parallel types
+    if not card.is_parallel:
+        for kw in PARALLEL_KEYWORDS:
+            # Check for the keyword but not if it's part of the set name
+            set_name = (card.set_name or "").lower()
+            if kw in title_lower and kw not in set_name:
+                return True
+
+    return False
+
+
 def _get_ebay_api_pricing(card) -> dict | None:
     """Use the eBay Browse API to get active listing prices."""
     token = _get_ebay_token()
@@ -173,7 +206,7 @@ def _get_ebay_api_pricing(card) -> dict | None:
             },
             params={
                 "q": query,
-                "limit": 25,
+                "limit": 50,
                 "sort": "newlyListed",
                 "filter": "buyingOptions:{FIXED_PRICE}",
             },
@@ -190,6 +223,11 @@ def _get_ebay_api_pricing(card) -> dict | None:
 
     prices = []
     for item in items:
+        # Filter out graded, lots, and wrong parallels by title
+        title = item.get("title", "")
+        if _should_skip_listing(title, card):
+            continue
+
         price_info = item.get("price", {})
         try:
             val = float(price_info.get("value", 0))
@@ -224,7 +262,7 @@ def _get_ebay_api_pricing(card) -> dict | None:
 
 # ── eBay Scraping (sold listings) ──────────────────────────────────────────
 
-def _extract_prices(soup: BeautifulSoup) -> list[float]:
+def _extract_prices(soup: BeautifulSoup, card=None) -> list[float]:
     """Parse sold prices out of an eBay search results page."""
     prices = []
     items = soup.select(".s-item")
@@ -235,6 +273,9 @@ def _extract_prices(soup: BeautifulSoup) -> list[float]:
         if title_el:
             title_text = title_el.get_text(strip=True)
             if title_text == "Shop on eBay" or title_text == "":
+                continue
+            # Filter out graded, lots, and wrong parallels
+            if card and _should_skip_listing(title_text, card):
                 continue
 
         # Skip items with "to" price ranges
@@ -282,7 +323,7 @@ def _get_ebay_scrape_pricing(card, max_results: int = 25) -> dict | None:
     if soup.select_one("#captcha") or "please verify" in resp.text.lower():
         return None
 
-    prices = _extract_prices(soup)[:max_results]
+    prices = _extract_prices(soup, card)[:max_results]
 
     if not prices:
         return None
