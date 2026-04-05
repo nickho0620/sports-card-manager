@@ -522,7 +522,7 @@ def health():
     return {"status": "ok"}
 
 
-EBAY_VERIFICATION_TOKEN = os.getenv("EBAY_VERIFICATION_TOKEN", "sportscardmanager2026")
+EBAY_VERIFICATION_TOKEN = os.getenv("EBAY_VERIFICATION_TOKEN", "sportscardmanager2026verificationtoken")
 
 
 @app.get("/api/ebay/account-deletion")
