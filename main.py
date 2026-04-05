@@ -522,6 +522,13 @@ def health():
     return {"status": "ok"}
 
 
+@app.post("/api/ebay/account-deletion")
+def ebay_account_deletion(body: dict = {}):
+    """eBay Marketplace Account Deletion webhook — required for eBay API compliance.
+    We don't store any eBay user data, so this just acknowledges the request."""
+    return {"status": "ok"}
+
+
 @app.get("/api/debug")
 def debug():
     """Debug endpoint — shows DB state and any errors."""
