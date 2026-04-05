@@ -6,9 +6,12 @@ from dotenv import load_dotenv
 load_dotenv(override=True)
 
 import csv
+import hashlib
+import hmac
 import io
 import json
 import os
+import secrets
 import shutil
 import uuid
 from datetime import datetime
@@ -16,8 +19,8 @@ from datetime import datetime
 import aiofiles
 import cloudinary
 import cloudinary.uploader
-from fastapi import BackgroundTasks, FastAPI, File, HTTPException, Query, UploadFile
-from fastapi.responses import StreamingResponse
+from fastapi import BackgroundTasks, Cookie, FastAPI, File, HTTPException, Query, Request, UploadFile
+from fastapi.responses import JSONResponse, StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
@@ -44,6 +47,30 @@ UPLOAD_DIR = os.getenv("UPLOAD_DIR", os.path.join(os.path.dirname(__file__), "up
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 
 STATIC_DIR = os.path.join(os.path.dirname(__file__), "static")
+
+# ── Auth ────────────────────────────────────────────────────────────────────
+ADMIN_USERNAME = os.getenv("ADMIN_USERNAME", "admin")
+ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "changeme")
+SESSION_SECRET = os.getenv("SESSION_SECRET", secrets.token_hex(32))
+
+# In-memory session store (survives until server restart)
+_active_sessions: set[str] = set()
+
+
+def _create_session() -> str:
+    token = secrets.token_hex(32)
+    _active_sessions.add(token)
+    return token
+
+
+def _check_auth(request: Request) -> bool:
+    token = request.cookies.get("session")
+    return token in _active_sessions if token else False
+
+
+def require_auth(request: Request):
+    if not _check_auth(request):
+        raise HTTPException(status_code=401, detail="Login required")
 
 # Cloudinary config (optional — falls back to local storage if not set)
 USE_CLOUDINARY = bool(os.getenv("CLOUDINARY_CLOUD_NAME"))
@@ -77,6 +104,44 @@ def dashboard():
 @app.get("/scanner", include_in_schema=False)
 def scanner():
     return FileResponse(os.path.join(STATIC_DIR, "scanner.html"))
+
+
+@app.get("/login", include_in_schema=False)
+def login_page():
+    return FileResponse(os.path.join(STATIC_DIR, "login.html"))
+
+
+# ── Auth API ────────────────────────────────────────────────────────────────
+
+@app.post("/api/auth/login")
+def login(body: dict):
+    username = body.get("username", "")
+    password = body.get("password", "")
+    if username == ADMIN_USERNAME and password == ADMIN_PASSWORD:
+        token = _create_session()
+        resp = JSONResponse({"status": "ok"})
+        resp.set_cookie(
+            "session", token,
+            httponly=True, samesite="lax",
+            max_age=60 * 60 * 24 * 7,  # 7 days
+        )
+        return resp
+    raise HTTPException(status_code=401, detail="Invalid username or password")
+
+
+@app.post("/api/auth/logout")
+def logout(request: Request):
+    token = request.cookies.get("session")
+    if token:
+        _active_sessions.discard(token)
+    resp = JSONResponse({"status": "ok"})
+    resp.delete_cookie("session")
+    return resp
+
+
+@app.get("/api/auth/check")
+def auth_check(request: Request):
+    return {"authenticated": _check_auth(request)}
 
 
 # ── Helper ───────────────────────────────────────────────────────────────────
@@ -308,6 +373,7 @@ def get_card(card_id: str):
 
 @app.post("/api/cards/{card_id}/image/{side}")
 async def update_card_image(
+    request: Request,
     card_id: str,
     side: str,
     background_tasks: BackgroundTasks,
@@ -316,6 +382,7 @@ async def update_card_image(
     scan_mode: bool = Query(default=False),
 ):
     """Replace front or back image for an existing card."""
+    require_auth(request)
     if side not in ("front", "back"):
         raise HTTPException(status_code=400, detail="Side must be 'front' or 'back'")
 
@@ -357,12 +424,14 @@ async def update_card_image(
 
 @app.post("/api/cards/upload")
 async def upload_card(
+    request: Request,
     background_tasks: BackgroundTasks,
     front_image: UploadFile = File(None),
     back_image: UploadFile = File(None),
     scan_mode: bool = Query(default=False),
 ):
     """Receive front and/or back images. At least one required. scan_mode applies edge detection + perspective correction."""
+    require_auth(request)
     if not front_image and not back_image:
         raise HTTPException(status_code=400, detail="At least one image is required")
 
@@ -423,8 +492,9 @@ async def upload_card(
 
 
 @app.patch("/api/cards/{card_id}")
-def update_card(card_id: str, body: dict):
+def update_card(request: Request, card_id: str, body: dict):
     """Update any card field. Supports all detail fields + notes."""
+    require_auth(request)
     allowed = {
         "notes", "condition", "estimated_price", "player_name", "year",
         "brand", "set_name", "team", "description", "subset", "insert_set", "product_code", "card_number",
@@ -448,8 +518,9 @@ def update_card(card_id: str, body: dict):
 
 
 @app.post("/api/cards/{card_id}/reprice")
-def reprice_card(card_id: str, background_tasks: BackgroundTasks):
+def reprice_card(request: Request, card_id: str, background_tasks: BackgroundTasks):
     """Trigger a fresh eBay pricing lookup."""
+    require_auth(request)
     db = SessionLocal()
     try:
         card = db.get(Card, card_id)
@@ -462,8 +533,9 @@ def reprice_card(card_id: str, background_tasks: BackgroundTasks):
 
 
 @app.delete("/api/cards/{card_id}")
-def delete_card(card_id: str):
+def delete_card(request: Request, card_id: str):
     """Delete a card and its images."""
+    require_auth(request)
     db = SessionLocal()
     try:
         card = db.get(Card, card_id)

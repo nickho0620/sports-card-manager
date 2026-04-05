@@ -50,13 +50,11 @@
         <p class="text-xs text-slate-400" id="header-stats">Loading…</p>
       </div>
     </div>
-    <div class="flex items-center gap-2">
+    <div class="flex items-center gap-2" id="header-actions">
       <a href="/api/export/csv" class="flex items-center gap-1 bg-slate-700 hover:bg-slate-600 text-white px-3 py-2 rounded-xl font-medium text-sm transition-colors">
         📊 Export CSV
       </a>
-      <a href="/scanner" class="flex items-center gap-2 bg-blue-600 hover:bg-blue-500 text-white px-4 py-2 rounded-xl font-semibold text-sm transition-colors">
-        📷 Scan Card
-      </a>
+      <span id="auth-buttons"></span>
     </div>
   </header>
 
@@ -145,6 +143,31 @@
     let currentFilter = '';
     let currentSearch = '';
     let pollTimer = null;
+    let isAdmin = false;
+
+    // Check auth on load
+    async function checkAuth() {
+      try {
+        const res = await fetch('/api/auth/check');
+        const data = await res.json();
+        isAdmin = data.authenticated;
+      } catch { isAdmin = false; }
+      const el = document.getElementById('auth-buttons');
+      if (isAdmin) {
+        el.innerHTML = `
+          <a href="/scanner" class="flex items-center gap-2 bg-blue-600 hover:bg-blue-500 text-white px-4 py-2 rounded-xl font-semibold text-sm transition-colors">📷 Scan Card</a>
+          <button onclick="doLogout()" class="bg-slate-700 hover:bg-slate-600 text-white px-3 py-2 rounded-xl font-medium text-sm transition-colors">Logout</button>`;
+      } else {
+        el.innerHTML = `<a href="/login" class="flex items-center gap-2 bg-blue-600 hover:bg-blue-500 text-white px-4 py-2 rounded-xl font-semibold text-sm transition-colors">Login</a>`;
+      }
+    }
+
+    async function doLogout() {
+      await fetch('/api/auth/logout', { method: 'POST' });
+      isAdmin = false;
+      checkAuth();
+      if (currentModalCardId) openModal(currentModalCardId);
+    }
 
     function formatEST(isoStr) {
       if (!isoStr) return '';
@@ -255,16 +278,28 @@
            </div>`
         : '';
 
-      // Editable text field
+      // Editable text field (read-only when not admin)
       const editField = (label, field, value, placeholder='') =>
-        `<div class="flex items-center justify-between py-1.5 border-b border-slate-700 text-sm gap-3">
-           <span class="text-slate-400 whitespace-nowrap">${label}</span>
-           <input type="text" data-field="${field}" value="${value || ''}" placeholder="${placeholder}"
-             class="edit-field bg-slate-700/50 border border-slate-600 rounded-lg px-2 py-1 text-sm text-right outline-none focus:border-blue-500 w-40 transition-colors">
-         </div>`;
+        isAdmin
+        ? `<div class="flex items-center justify-between py-1.5 border-b border-slate-700 text-sm gap-3">
+             <span class="text-slate-400 whitespace-nowrap">${label}</span>
+             <input type="text" data-field="${field}" value="${value || ''}" placeholder="${placeholder}"
+               class="edit-field bg-slate-700/50 border border-slate-600 rounded-lg px-2 py-1 text-sm text-right outline-none focus:border-blue-500 w-40 transition-colors">
+           </div>`
+        : (value ? `<div class="flex justify-between py-1.5 border-b border-slate-700 text-sm">
+             <span class="text-slate-400">${label}</span>
+             <span class="text-right font-medium max-w-xs">${value}</span>
+           </div>` : '');
 
-      // Editable toggle
+      // Editable toggle (read-only when not admin)
       const editToggle = (label, field, checked, extraField='', extraValue='') => {
+        if (!isAdmin) {
+          if (!checked && !extraValue) return '';
+          return `<div class="flex justify-between py-1.5 border-b border-slate-700 text-sm">
+            <span class="text-slate-400">${label}</span>
+            <span class="text-right font-medium">${extraValue || (checked ? 'Yes' : 'No')}</span>
+          </div>`;
+        }
         let extra = '';
         if (extraField) {
           extra = `<input type="text" data-field="${extraField}" value="${extraValue || ''}" placeholder="Details..."
@@ -304,10 +339,10 @@
                    onclick="zoomImage('${card.front_image_url}')">`
               : `<div class="w-full rounded-lg flex items-center justify-center bg-slate-800" style="height:200px"><span class="text-slate-500 text-sm">No front image</span></div>`
             }
-            <div class="grid gap-1 mt-2" style="grid-template-columns:${hasFront ? '1fr 1fr 1fr' : '1fr 1fr'}">
-              ${hasFront ? `<button onclick="zoomImage('${card.front_image_url}')" class="img-action-btn bg-slate-700 hover:bg-slate-600 text-slate-200 text-center" style="padding:3px 4px;font-size:11px">🔍 Zoom</button>` : ''}
-              <button onclick="document.getElementById('replace-front-input').click()" class="img-action-btn bg-blue-600/30 hover:bg-blue-600/50 text-blue-300 text-center" style="padding:3px 4px;font-size:11px">📷 Photo</button>
-              <button onclick="openScanCamera('front')" class="img-action-btn bg-green-600/30 hover:bg-green-600/50 text-green-300 text-center" style="padding:3px 4px;font-size:11px">📐 Scan</button>
+            <div class="flex gap-1 mt-2">
+              ${hasFront ? `<button onclick="zoomImage('${card.front_image_url}')" class="img-action-btn bg-slate-700 hover:bg-slate-600 text-slate-200 text-center flex-1" style="padding:3px 4px;font-size:11px">🔍 Zoom</button>` : ''}
+              ${isAdmin ? `<button onclick="document.getElementById('replace-front-input').click()" class="img-action-btn bg-blue-600/30 hover:bg-blue-600/50 text-blue-300 text-center flex-1" style="padding:3px 4px;font-size:11px">📷 Photo</button>
+              <button onclick="openScanCamera('front')" class="img-action-btn bg-green-600/30 hover:bg-green-600/50 text-green-300 text-center flex-1" style="padding:3px 4px;font-size:11px">📐 Scan</button>` : ''}
             </div>
           </div>
           <div>
@@ -317,10 +352,10 @@
                    onclick="zoomImage('${card.back_image_url}')">`
               : `<div class="w-full rounded-lg flex items-center justify-center bg-slate-800" style="height:200px"><span class="text-slate-500 text-sm">No back image</span></div>`
             }
-            <div class="grid gap-1 mt-2" style="grid-template-columns:${hasBack ? '1fr 1fr 1fr' : '1fr 1fr'}">
-              ${hasBack ? `<button onclick="zoomImage('${card.back_image_url}')" class="img-action-btn bg-slate-700 hover:bg-slate-600 text-slate-200 text-center" style="padding:3px 4px;font-size:11px">🔍 Zoom</button>` : ''}
-              <button onclick="document.getElementById('replace-back-input').click()" class="img-action-btn bg-blue-600/30 hover:bg-blue-600/50 text-blue-300 text-center" style="padding:3px 4px;font-size:11px">📷 Photo</button>
-              <button onclick="openScanCamera('back')" class="img-action-btn bg-green-600/30 hover:bg-green-600/50 text-green-300 text-center" style="padding:3px 4px;font-size:11px">📐 Scan</button>
+            <div class="flex gap-1 mt-2">
+              ${hasBack ? `<button onclick="zoomImage('${card.back_image_url}')" class="img-action-btn bg-slate-700 hover:bg-slate-600 text-slate-200 text-center flex-1" style="padding:3px 4px;font-size:11px">🔍 Zoom</button>` : ''}
+              ${isAdmin ? `<button onclick="document.getElementById('replace-back-input').click()" class="img-action-btn bg-blue-600/30 hover:bg-blue-600/50 text-blue-300 text-center flex-1" style="padding:3px 4px;font-size:11px">📷 Photo</button>
+              <button onclick="openScanCamera('back')" class="img-action-btn bg-green-600/30 hover:bg-green-600/50 text-green-300 text-center flex-1" style="padding:3px 4px;font-size:11px">📐 Scan</button>` : ''}
             </div>
           </div>
         </div>
@@ -328,7 +363,7 @@
         <!-- Editable Card Details -->
         <div class="flex items-center justify-between mb-2">
           <h3 class="font-semibold text-slate-300 text-xs uppercase tracking-widest">Card Details</h3>
-          <span class="text-xs text-slate-500">Edit any field below</span>
+          ${isAdmin ? `<span class="text-xs text-slate-500">Edit any field below</span>` : ''}
         </div>
         <div class="mb-5" id="edit-details">
           ${editField('Player', 'player_name', card.player_name, 'Player name')}
@@ -352,12 +387,18 @@
           ${editToggle('Alternate Jersey', 'has_alternate_jersey', card.has_alternate_jersey, 'jersey_description', card.jersey_description)}
           ${editToggle('Short Print', 'is_short_print', card.is_short_print)}
           ${editField('Notable Features', 'notable_features', card.notable_features, 'Error card, SSP...')}
-          <div class="py-1.5 border-b border-slate-700 text-sm">
-            <span class="text-slate-400">Description</span>
-            <textarea data-field="description"
-              class="edit-field w-full mt-1 bg-slate-700/50 border border-slate-600 rounded-lg px-2 py-1 text-sm outline-none focus:border-blue-500 resize-none transition-colors"
-              rows="2" placeholder="Brief card description...">${card.description || ''}</textarea>
-          </div>
+          ${isAdmin
+            ? `<div class="py-1.5 border-b border-slate-700 text-sm">
+                <span class="text-slate-400">Description</span>
+                <textarea data-field="description"
+                  class="edit-field w-full mt-1 bg-slate-700/50 border border-slate-600 rounded-lg px-2 py-1 text-sm outline-none focus:border-blue-500 resize-none transition-colors"
+                  rows="2" placeholder="Brief card description...">${card.description || ''}</textarea>
+              </div>`
+            : (card.description ? `<div class="flex justify-between py-1.5 border-b border-slate-700 text-sm">
+                <span class="text-slate-400">Description</span>
+                <span class="text-right font-medium max-w-xs text-sm">${card.description}</span>
+              </div>` : '')
+          }
         </div>
 
         <!-- Pricing -->
@@ -432,14 +473,18 @@
         }
 
         <!-- Notes -->
-        <h3 class="font-semibold text-slate-300 text-xs uppercase tracking-widest mb-2">Notes</h3>
-        <textarea id="notes-input"
-          class="w-full bg-slate-700 border border-slate-600 rounded-xl p-3 text-sm resize-none outline-none focus:border-blue-500 transition-colors mb-4"
-          rows="3" placeholder="Add notes about this card..."
-        >${card.notes || ''}</textarea>
+        ${isAdmin
+          ? `<h3 class="font-semibold text-slate-300 text-xs uppercase tracking-widest mb-2">Notes</h3>
+             <textarea id="notes-input"
+               class="w-full bg-slate-700 border border-slate-600 rounded-xl p-3 text-sm resize-none outline-none focus:border-blue-500 transition-colors mb-4"
+               rows="3" placeholder="Add notes about this card..."
+             >${card.notes || ''}</textarea>`
+          : (card.notes ? `<h3 class="font-semibold text-slate-300 text-xs uppercase tracking-widest mb-2">Notes</h3>
+             <p class="text-sm text-slate-300 mb-4">${card.notes}</p>` : '')
+        }
 
-        <!-- Actions -->
-        <div class="flex flex-wrap gap-3">
+        <!-- Actions (admin only) -->
+        ${isAdmin ? `<div class="flex flex-wrap gap-3">
           <button onclick="saveAllDetails('${card.id}')"
             class="flex-1 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 font-semibold text-sm transition-colors">
             Save Details
@@ -452,7 +497,7 @@
             class="py-2.5 px-4 rounded-xl bg-red-900/50 hover:bg-red-800/60 font-medium text-sm text-red-400 transition-colors">
             Delete
           </button>
-        </div>
+        </div>` : ''}
 
         <p class="text-slate-600 text-xs mt-4 text-center">ID: ${card.id}</p>
       `;
@@ -686,6 +731,7 @@
     });
 
     // ── Init ─────────────────────────────────────────────────────────────────
+    checkAuth();
     loadCards();
   </script>
 </body>
