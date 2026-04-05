@@ -87,7 +87,7 @@ def card_to_dict(card: Card) -> dict:
     back_url = card.back_image_path if card.back_image_path and card.back_image_path.startswith("http") else f"/uploads/{card.id}/back.jpg"
     return {
         "id": card.id,
-        "created_at": card.created_at.isoformat() if card.created_at else None,
+        "created_at": (card.created_at.isoformat() + "Z") if card.created_at else None,
         "front_image_url": front_url,
         "back_image_url": back_url,
         "status": card.status,
@@ -125,7 +125,7 @@ def card_to_dict(card: Card) -> dict:
         "ebay_low": card.ebay_low,
         "ebay_high": card.ebay_high,
         "ebay_num_sales": card.ebay_num_sales,
-        "ebay_last_checked": card.ebay_last_checked.isoformat() if card.ebay_last_checked else None,
+        "ebay_last_checked": (card.ebay_last_checked.isoformat() + "Z") if card.ebay_last_checked else None,
         "ebay_search_query": card.ebay_search_query,
         # Meta
         "notes": card.notes,

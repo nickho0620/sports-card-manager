@@ -95,11 +95,50 @@
     <div class="modal-box p-6" id="modal-content"></div>
   </div>
 
-  <!-- Hidden file inputs for image replacement -->
+  <!-- Hidden file inputs for image replacement (photo mode) -->
   <input type="file" id="replace-front-input" accept="image/*" class="hidden">
   <input type="file" id="replace-back-input"  accept="image/*" class="hidden">
-  <input type="file" id="replace-front-input-scan" accept="image/*" class="hidden">
-  <input type="file" id="replace-back-input-scan"  accept="image/*" class="hidden">
+
+  <!-- Live Camera Scanner Overlay (for re-scanning existing cards) -->
+  <div id="scan-overlay" class="fixed inset-0 z-60 bg-black hidden flex flex-col" style="z-index:70">
+    <video id="scan-video" autoplay playsinline muted class="absolute inset-0 w-full h-full object-cover"></video>
+    <!-- Card guide frame with darkened surroundings -->
+    <div class="absolute inset-0 pointer-events-none">
+      <svg class="w-full h-full" preserveAspectRatio="none">
+        <defs>
+          <mask id="scan-guide-mask">
+            <rect width="100%" height="100%" fill="white"/>
+            <rect x="15%" y="15%" width="70%" height="60%" rx="12" fill="black"/>
+          </mask>
+        </defs>
+        <rect width="100%" height="100%" fill="rgba(0,0,0,0.6)" mask="url(#scan-guide-mask)"/>
+      </svg>
+      <div class="absolute border-2 border-white/70 rounded-xl" style="left:15%;top:15%;width:70%;height:60%;">
+        <div class="absolute -top-0.5 -left-0.5 w-6 h-6 border-t-3 border-l-3 border-white rounded-tl-lg"></div>
+        <div class="absolute -top-0.5 -right-0.5 w-6 h-6 border-t-3 border-r-3 border-white rounded-tr-lg"></div>
+        <div class="absolute -bottom-0.5 -left-0.5 w-6 h-6 border-b-3 border-l-3 border-white rounded-bl-lg"></div>
+        <div class="absolute -bottom-0.5 -right-0.5 w-6 h-6 border-b-3 border-r-3 border-white rounded-br-lg"></div>
+      </div>
+    </div>
+    <!-- Label -->
+    <div class="absolute top-6 left-0 right-0 text-center z-10">
+      <span id="scan-label" class="bg-black/60 text-white text-sm font-semibold px-4 py-2 rounded-full">
+        Position card inside the frame
+      </span>
+    </div>
+    <!-- Controls -->
+    <div class="absolute bottom-0 left-0 right-0 z-10 flex items-center justify-center gap-8 pb-10">
+      <button onclick="closeScanCamera()" class="w-12 h-12 rounded-full bg-white/20 flex items-center justify-center">
+        <span class="text-white text-2xl">&times;</span>
+      </button>
+      <button onclick="captureScan()" class="w-20 h-20 rounded-full bg-white flex items-center justify-center shadow-xl active:scale-95 transition-transform">
+        <div class="w-16 h-16 rounded-full border-4 border-slate-900"></div>
+      </button>
+      <button onclick="flipScanCamera()" class="w-12 h-12 rounded-full bg-white/20 flex items-center justify-center">
+        <span class="text-white text-lg">🔄</span>
+      </button>
+    </div>
+  </div>
 
   <script>
     let allCards = [];
@@ -268,7 +307,7 @@
             <div class="grid gap-1 mt-2" style="grid-template-columns:${hasFront ? '1fr 1fr 1fr' : '1fr 1fr'}">
               ${hasFront ? `<button onclick="zoomImage('${card.front_image_url}')" class="img-action-btn bg-slate-700 hover:bg-slate-600 text-slate-200 text-center" style="padding:3px 4px;font-size:11px">🔍 Zoom</button>` : ''}
               <button onclick="document.getElementById('replace-front-input').click()" class="img-action-btn bg-blue-600/30 hover:bg-blue-600/50 text-blue-300 text-center" style="padding:3px 4px;font-size:11px">📷 Photo</button>
-              <button onclick="document.getElementById('replace-front-input-scan').click()" class="img-action-btn bg-green-600/30 hover:bg-green-600/50 text-green-300 text-center" style="padding:3px 4px;font-size:11px">📐 Scan</button>
+              <button onclick="openScanCamera('front')" class="img-action-btn bg-green-600/30 hover:bg-green-600/50 text-green-300 text-center" style="padding:3px 4px;font-size:11px">📐 Scan</button>
             </div>
           </div>
           <div>
@@ -281,7 +320,7 @@
             <div class="grid gap-1 mt-2" style="grid-template-columns:${hasBack ? '1fr 1fr 1fr' : '1fr 1fr'}">
               ${hasBack ? `<button onclick="zoomImage('${card.back_image_url}')" class="img-action-btn bg-slate-700 hover:bg-slate-600 text-slate-200 text-center" style="padding:3px 4px;font-size:11px">🔍 Zoom</button>` : ''}
               <button onclick="document.getElementById('replace-back-input').click()" class="img-action-btn bg-blue-600/30 hover:bg-blue-600/50 text-blue-300 text-center" style="padding:3px 4px;font-size:11px">📷 Photo</button>
-              <button onclick="document.getElementById('replace-back-input-scan').click()" class="img-action-btn bg-green-600/30 hover:bg-green-600/50 text-green-300 text-center" style="padding:3px 4px;font-size:11px">📐 Scan</button>
+              <button onclick="openScanCamera('back')" class="img-action-btn bg-green-600/30 hover:bg-green-600/50 text-green-300 text-center" style="padding:3px 4px;font-size:11px">📐 Scan</button>
             </div>
           </div>
         </div>
@@ -488,15 +527,79 @@
       if (e.target.files[0]) replaceImage('back', e.target.files[0], false);
       e.target.value = '';
     });
-    // Wire up scan mode file inputs
-    document.getElementById('replace-front-input-scan').addEventListener('change', e => {
-      if (e.target.files[0]) replaceImage('front', e.target.files[0], true);
-      e.target.value = '';
-    });
-    document.getElementById('replace-back-input-scan').addEventListener('change', e => {
-      if (e.target.files[0]) replaceImage('back', e.target.files[0], true);
-      e.target.value = '';
-    });
+
+    // ── Live Camera Scanner (for re-scanning existing cards) ────────────────
+
+    let scanStream = null;
+    let scanSide = null; // 'front' or 'back'
+    let scanFacing = 'environment';
+
+    async function openScanCamera(side) {
+      scanSide = side;
+      const video = document.getElementById('scan-video');
+      const overlay = document.getElementById('scan-overlay');
+      const label = document.getElementById('scan-label');
+      label.textContent = 'Position card ' + side + ' inside the frame';
+
+      try {
+        if (scanStream) scanStream.getTracks().forEach(t => t.stop());
+        scanStream = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: scanFacing, width: { ideal: 1920 }, height: { ideal: 1080 } }
+        });
+        video.srcObject = scanStream;
+        overlay.classList.remove('hidden');
+      } catch (err) {
+        // Camera not available — fall back to file picker with scan_mode
+        showToast('Camera not available, use Photo instead');
+      }
+    }
+
+    async function flipScanCamera() {
+      scanFacing = scanFacing === 'environment' ? 'user' : 'environment';
+      if (scanStream) {
+        scanStream.getTracks().forEach(t => t.stop());
+        const video = document.getElementById('scan-video');
+        scanStream = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: scanFacing, width: { ideal: 1920 }, height: { ideal: 1080 } }
+        });
+        video.srcObject = scanStream;
+      }
+    }
+
+    function captureScan() {
+      const video = document.getElementById('scan-video');
+      const fullCanvas = document.createElement('canvas');
+      fullCanvas.width = video.videoWidth;
+      fullCanvas.height = video.videoHeight;
+      const ctx = fullCanvas.getContext('2d');
+      ctx.drawImage(video, 0, 0);
+
+      // Crop to the guide area (matches CSS: 15% inset, 70% wide, 60% tall)
+      const cropX = Math.round(video.videoWidth * 0.15);
+      const cropY = Math.round(video.videoHeight * 0.15);
+      const cropW = Math.round(video.videoWidth * 0.70);
+      const cropH = Math.round(video.videoHeight * 0.60);
+
+      const cropCanvas = document.createElement('canvas');
+      cropCanvas.width = cropW;
+      cropCanvas.height = cropH;
+      const cropCtx = cropCanvas.getContext('2d');
+      cropCtx.drawImage(fullCanvas, cropX, cropY, cropW, cropH, 0, 0, cropW, cropH);
+
+      cropCanvas.toBlob(blob => {
+        const file = new File([blob], scanSide + '.jpg', { type: 'image/jpeg' });
+        closeScanCamera();
+        replaceImage(scanSide, file, true);
+      }, 'image/jpeg', 0.92);
+    }
+
+    function closeScanCamera() {
+      if (scanStream) {
+        scanStream.getTracks().forEach(t => t.stop());
+        scanStream = null;
+      }
+      document.getElementById('scan-overlay').classList.add('hidden');
+    }
 
     async function deleteCard(id) {
       if (!confirm('Delete this card and its images? This cannot be undone.')) return;
