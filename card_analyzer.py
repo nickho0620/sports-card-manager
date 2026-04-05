@@ -1,14 +1,19 @@
 """
 Card analyzer — uses Claude Vision (Anthropic) to extract all metadata from
-front + back card images. Falls back to Google Gemini if configured.
+front + back card images. Includes a web verification step that searches eBay
+for the card number to find known parallels, then re-examines the images.
 """
 import base64
 import io
 import json
 import os
+import re
 import time
+from urllib.parse import quote_plus
 
 import anthropic
+import requests
+from bs4 import BeautifulSoup
 from PIL import Image
 
 CLAUDE_MODEL = os.getenv("CLAUDE_MODEL", "claude-sonnet-4-20250514")
@@ -58,7 +63,96 @@ Return ONLY a valid JSON object — no markdown, no explanation:
   "condition": "Mint / Near Mint / Excellent / Very Good / Good / Poor  (visual estimate — look at centering, corners, edges, surface)",
   "notable_features": "Any other notable features as a plain string, or null",
   "description": "1-2 sentence summary including the exact set identification (e.g. '2024 Topps Series 1 1989 Topps Silver Pack Chrome insert of Juan Soto')"
-}"""
+}
+
+IMPORTANT: If you are uncertain about ANY field, set it to null rather than guessing."""
+
+VERIFY_PROMPT = """You previously analyzed this card and produced the initial identification below.
+I then searched eBay for this card and found the following listing titles from sold/active listings.
+These titles show the REAL variants, parallels, and details that collectors and sellers use.
+
+YOUR INITIAL ANALYSIS:
+{initial_analysis}
+
+EBAY LISTING TITLES FOR THIS CARD:
+{listing_titles}
+
+Now re-examine the card images carefully. Compare the visual characteristics of THIS card
+(border color, refractor/rainbow pattern, foil type, numbering stamp, any color tint)
+against the variants mentioned in the eBay listings above.
+
+Key things to verify or correct:
+1. PARALLEL — Is this a specific color parallel (Orange, Blue, Green, Red, Gold, etc.)? Is it a Refractor, Mojo, Prizm, Holo, Scope, Speckle, Shimmer? Match the visual cues to the parallels seen in listings.
+2. NUMBERED — Do you see a stamp like /25, /50, /75, /99, /150, /199, /250, /299, /2024 anywhere on the card? Listings mentioning "/#" confirm numbered variants exist.
+3. INSERT SET — Is this from a specific insert set? The listings may clarify the exact insert name.
+4. SET NAME — Confirm the exact set name based on what sellers call it in listings.
+5. YEAR — Confirm from copyright text on back, not from player stats.
+
+Return ONLY an updated valid JSON object with ALL the same fields as before — include every field,
+not just the ones you changed. No markdown, no explanation."""
+
+
+HEADERS = {
+    "User-Agent": (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) "
+        "Chrome/124.0.0.0 Safari/537.36"
+    ),
+    "Accept-Language": "en-US,en;q=0.9",
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+}
+
+
+def _search_ebay_listings(query: str, max_titles: int = 30) -> list[str]:
+    """Search eBay for a card and return listing titles (sold + active)."""
+    titles = []
+
+    for search_type in ["sold", "active"]:
+        url = (
+            f"https://www.ebay.com/sch/i.html"
+            f"?_nkw={quote_plus(query)}"
+            f"&_sop=13"
+        )
+        if search_type == "sold":
+            url += "&LH_Sold=1&LH_Complete=1"
+
+        try:
+            time.sleep(0.5)
+            resp = requests.get(url, headers=HEADERS, timeout=15)
+            resp.raise_for_status()
+            soup = BeautifulSoup(resp.text, "html.parser")
+
+            for item in soup.select(".s-item__title, .srp-item__title"):
+                text = item.get_text(strip=True)
+                if text and text != "Shop on eBay":
+                    titles.append(text)
+        except Exception:
+            continue
+
+    # Deduplicate while preserving order
+    seen = set()
+    unique = []
+    for t in titles:
+        if t not in seen:
+            seen.add(t)
+            unique.append(t)
+    return unique[:max_titles]
+
+
+def _build_verification_query(analysis: dict) -> str:
+    """Build a search query from the initial analysis to find this card on eBay."""
+    parts = []
+    if analysis.get("year"):
+        parts.append(str(analysis["year"]))
+    if analysis.get("brand"):
+        parts.append(analysis["brand"])
+    if analysis.get("set_name"):
+        parts.append(analysis["set_name"])
+    if analysis.get("player_name"):
+        parts.append(analysis["player_name"])
+    if analysis.get("card_number"):
+        parts.append(f"#{analysis['card_number']}")
+    return " ".join(parts)
 
 
 def _load_image_b64(path: str) -> tuple[str, str]:
@@ -101,9 +195,83 @@ def _make_image_content(path_or_url: str) -> dict:
         }
 
 
+def _call_claude(client, model: str, max_tokens: int, content: list, retries: int = 3) -> dict:
+    """Make a Claude API call with retries, return parsed JSON."""
+    for attempt in range(retries):
+        try:
+            response = client.messages.create(
+                model=model,
+                max_tokens=max_tokens,
+                messages=[{"role": "user", "content": content}],
+            )
+            raw = _clean_json(response.content[0].text)
+            return json.loads(raw)
+        except json.JSONDecodeError:
+            if attempt < retries - 1:
+                time.sleep(2 ** attempt)
+                continue
+            raise ValueError(f"Claude returned invalid JSON after {retries} attempts: {response.content[0].text[:500]}")
+        except anthropic.RateLimitError:
+            if attempt < retries - 1:
+                time.sleep(5 * (attempt + 1))
+                continue
+            raise
+        except Exception:
+            if attempt < retries - 1:
+                time.sleep(2 ** attempt)
+                continue
+            raise
+
+
+def _verify_with_ebay(client, front_content: dict, back_content: dict,
+                      initial: dict) -> dict | None:
+    """Search eBay for the card, then ask Claude to re-examine with context."""
+    query = _build_verification_query(initial)
+    if not query.strip():
+        return None
+
+    titles = _search_ebay_listings(query)
+    if not titles:
+        # Try a simpler query with just player + card number
+        parts = []
+        if initial.get("player_name"):
+            parts.append(initial["player_name"])
+        if initial.get("card_number"):
+            parts.append(f"#{initial['card_number']}")
+        if parts:
+            titles = _search_ebay_listings(" ".join(parts))
+    if not titles:
+        return None
+
+    titles_text = "\n".join(f"- {t}" for t in titles)
+    initial_text = json.dumps(initial, indent=2)
+
+    prompt = VERIFY_PROMPT.format(
+        initial_analysis=initial_text,
+        listing_titles=titles_text,
+    )
+
+    try:
+        verified = _call_claude(
+            client, CLAUDE_MODEL, 1024,
+            [
+                {"type": "text", "text": prompt},
+                front_content,
+                back_content,
+            ],
+        )
+        return verified
+    except Exception:
+        return None
+
+
 def analyze_card(front_path: str, back_path: str, retries: int = 3) -> dict:
     """
     Analyze a card's front and back images with Claude Vision.
+    Two-pass process:
+      1. Initial analysis — extract all metadata from images
+      2. Web verification — search eBay for the card, then re-examine
+         images against known parallels/variants from real listings
     Accepts local file paths or URLs (e.g. Cloudinary).
     Returns a dict of card metadata.
     """
@@ -117,35 +285,20 @@ def analyze_card(front_path: str, back_path: str, retries: int = 3) -> dict:
     front_content = _make_image_content(front_path)
     back_content = _make_image_content(back_path)
 
-    for attempt in range(retries):
-        try:
-            response = client.messages.create(
-                model=CLAUDE_MODEL,
-                max_tokens=1024,
-                messages=[{
-                    "role": "user",
-                    "content": [
-                        {"type": "text", "text": ANALYSIS_PROMPT},
-                        front_content,
-                        back_content,
-                    ],
-                }],
-            )
-            raw = _clean_json(response.content[0].text)
-            result = json.loads(raw)
-            return result
-        except json.JSONDecodeError:
-            if attempt < retries - 1:
-                time.sleep(2 ** attempt)
-                continue
-            raise ValueError(f"Claude returned invalid JSON after {retries} attempts: {response.content[0].text[:500]}")
-        except anthropic.RateLimitError:
-            if attempt < retries - 1:
-                time.sleep(5 * (attempt + 1))
-                continue
-            raise
-        except Exception as e:
-            if attempt < retries - 1:
-                time.sleep(2 ** attempt)
-                continue
-            raise
+    # Pass 1 — Initial analysis
+    result = _call_claude(
+        client, CLAUDE_MODEL, 1024,
+        [
+            {"type": "text", "text": ANALYSIS_PROMPT},
+            front_content,
+            back_content,
+        ],
+        retries=retries,
+    )
+
+    # Pass 2 — Web verification (non-fatal if it fails)
+    verified = _verify_with_ebay(client, front_content, back_content, result)
+    if verified:
+        result = verified
+
+    return result

@@ -71,8 +71,11 @@ def build_search_query(card) -> str:
         parts.append("auto")
     if card.is_rookie_card:
         parts.append("RC")
+    # Only add print run if it's not already in the parallel name
     if card.is_numbered and card.print_run:
-        parts.append(f"/{card.print_run}")
+        parallel = card.parallel_name or ""
+        if f"/{card.print_run}" not in parallel:
+            parts.append(f"/{card.print_run}")
     if card.card_number:
         parts.append(f"#{card.card_number}")
     return " ".join(parts)

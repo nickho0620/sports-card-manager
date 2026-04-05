@@ -1,10 +1,15 @@
 {
   "permissions": {
     "allow": [
-      "Bash(venv/Scripts/pip install:*)",
-      "Bash(timeout 8 venv/Scripts/python -c \":*)",
-      "Bash(gh --version)",
-      "Bash(gh auth:*)"
+      "Bash(*)",
+      "Read(*)",
+      "Write(*)",
+      "Edit(*)",
+      "Glob(*)",
+      "Grep(*)",
+      "Agent(*)",
+      "mcp__Claude_Preview__*",
+      "WebSearch"
     ]
   }
 }

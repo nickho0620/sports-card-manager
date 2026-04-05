@@ -98,6 +98,8 @@
   <!-- Hidden file inputs for image replacement -->
   <input type="file" id="replace-front-input" accept="image/*" class="hidden">
   <input type="file" id="replace-back-input"  accept="image/*" class="hidden">
+  <input type="file" id="replace-front-input-scan" accept="image/*" capture="environment" class="hidden">
+  <input type="file" id="replace-back-input-scan"  accept="image/*" capture="environment" class="hidden">
 
   <script>
     let allCards = [];
@@ -265,7 +267,8 @@
             }
             <div class="flex gap-2 mt-2">
               ${hasFront ? `<button onclick="zoomImage('${card.front_image_url}')" class="img-action-btn bg-slate-700 hover:bg-slate-600 text-slate-200 flex-1">🔍 Zoom</button>` : ''}
-              <button onclick="document.getElementById('replace-front-input').click()" class="img-action-btn bg-blue-600/30 hover:bg-blue-600/50 text-blue-300 flex-1">📷 Replace</button>
+              <button onclick="document.getElementById('replace-front-input').click()" class="img-action-btn bg-blue-600/30 hover:bg-blue-600/50 text-blue-300 flex-1">📷 Photo</button>
+              <button onclick="document.getElementById('replace-front-input-scan').click()" class="img-action-btn bg-green-600/30 hover:bg-green-600/50 text-green-300 flex-1">📐 Scan</button>
             </div>
           </div>
           <div>
@@ -277,7 +280,8 @@
             }
             <div class="flex gap-2 mt-2">
               ${hasBack ? `<button onclick="zoomImage('${card.back_image_url}')" class="img-action-btn bg-slate-700 hover:bg-slate-600 text-slate-200 flex-1">🔍 Zoom</button>` : ''}
-              <button onclick="document.getElementById('replace-back-input').click()" class="img-action-btn bg-blue-600/30 hover:bg-blue-600/50 text-blue-300 flex-1">📷 Replace</button>
+              <button onclick="document.getElementById('replace-back-input').click()" class="img-action-btn bg-blue-600/30 hover:bg-blue-600/50 text-blue-300 flex-1">📷 Photo</button>
+              <button onclick="document.getElementById('replace-back-input-scan').click()" class="img-action-btn bg-green-600/30 hover:bg-green-600/50 text-green-300 flex-1">📐 Scan</button>
             </div>
           </div>
         </div>
@@ -457,12 +461,13 @@
       setTimeout(() => clearInterval(pollReprice), 30000);
     }
 
-    async function replaceImage(side, file) {
+    async function replaceImage(side, file, scanMode = false) {
       if (!currentModalCardId || !file) return;
       const form = new FormData();
       form.append('image', file, side + '.jpg');
-      showToast('Uploading ' + side + ' image...');
-      const res = await fetch(`/api/cards/${currentModalCardId}/image/${side}`, {
+      const scanParam = scanMode ? '?scan_mode=true' : '';
+      showToast('Uploading ' + side + ' image' + (scanMode ? ' (scanning)' : '') + '...');
+      const res = await fetch(`/api/cards/${currentModalCardId}/image/${side}${scanParam}`, {
         method: 'POST', body: form
       });
       if (res.ok) {
@@ -474,13 +479,22 @@
       }
     }
 
-    // Wire up the hidden file inputs for image replacement
+    // Wire up the hidden file inputs for image replacement (photo mode)
     document.getElementById('replace-front-input').addEventListener('change', e => {
-      if (e.target.files[0]) replaceImage('front', e.target.files[0]);
+      if (e.target.files[0]) replaceImage('front', e.target.files[0], false);
       e.target.value = '';
     });
     document.getElementById('replace-back-input').addEventListener('change', e => {
-      if (e.target.files[0]) replaceImage('back', e.target.files[0]);
+      if (e.target.files[0]) replaceImage('back', e.target.files[0], false);
+      e.target.value = '';
+    });
+    // Wire up scan mode file inputs
+    document.getElementById('replace-front-input-scan').addEventListener('change', e => {
+      if (e.target.files[0]) replaceImage('front', e.target.files[0], true);
+      e.target.value = '';
+    });
+    document.getElementById('replace-back-input-scan').addEventListener('change', e => {
+      if (e.target.files[0]) replaceImage('back', e.target.files[0], true);
       e.target.value = '';
     });
 
