@@ -163,28 +163,46 @@ PARALLEL_KEYWORDS = {
 }
 
 
-def _should_skip_listing(title: str, card) -> bool:
-    """Check if a listing title should be excluded from pricing."""
+def _classify_listing(title: str, card) -> str:
+    """Classify a listing as 'raw', 'graded', or 'skip'."""
     title_lower = title.lower()
-
-    # Always skip graded cards
-    for kw in GRADED_KEYWORDS:
-        if kw in title_lower:
-            return True
 
     # Skip lot listings
     if re.search(r'\b(lot|bundle|set of|x\d+|\d+x)\b', title_lower):
-        return True
+        return "skip"
 
     # If our card is NOT a parallel, skip listings that mention parallel types
     if not card.is_parallel:
         for kw in PARALLEL_KEYWORDS:
-            # Check for the keyword but not if it's part of the set name
             set_name = (card.set_name or "").lower()
             if kw in title_lower and kw not in set_name:
-                return True
+                return "skip"
 
-    return False
+    # Check if graded
+    for kw in GRADED_KEYWORDS:
+        if kw in title_lower:
+            return "graded"
+
+    return "raw"
+
+
+def _calc_stats(prices: list[float]) -> dict:
+    """Calculate price statistics from a list of prices."""
+    if not prices:
+        return {}
+    # Remove outliers: drop prices more than 3x the median
+    if len(prices) >= 5:
+        med = statistics.median(prices)
+        prices = [p for p in prices if p <= med * 3]
+    if not prices:
+        return {}
+    return {
+        "avg": round(statistics.mean(prices), 2),
+        "median": round(statistics.median(prices), 2),
+        "low": round(min(prices), 2),
+        "high": round(max(prices), 2),
+        "count": len(prices),
+    }
 
 
 def _get_ebay_api_pricing(card) -> dict | None:
@@ -221,11 +239,12 @@ def _get_ebay_api_pricing(card) -> dict | None:
     if not items:
         return None
 
-    prices = []
+    raw_prices = []
+    graded_prices = []
     for item in items:
-        # Filter out graded, lots, and wrong parallels by title
         title = item.get("title", "")
-        if _should_skip_listing(title, card):
+        classification = _classify_listing(title, card)
+        if classification == "skip":
             continue
 
         price_info = item.get("price", {})
@@ -233,50 +252,61 @@ def _get_ebay_api_pricing(card) -> dict | None:
             val = float(price_info.get("value", 0))
             currency = price_info.get("currency", "USD")
             if currency == "USD" and 0.25 < val < 50_000:
-                prices.append(val)
+                if classification == "graded":
+                    graded_prices.append(val)
+                else:
+                    raw_prices.append(val)
         except (ValueError, TypeError):
             continue
 
-    if not prices:
+    raw_stats = _calc_stats(raw_prices)
+    if not raw_stats:
         return None
 
-    # Remove outliers: drop prices more than 3x the median
-    if len(prices) >= 5:
-        med = statistics.median(prices)
-        prices = [p for p in prices if p <= med * 3]
-
-    if not prices:
-        return None
-
-    return {
-        "avg": round(statistics.mean(prices), 2),
-        "median": round(statistics.median(prices), 2),
-        "low": round(min(prices), 2),
-        "high": round(max(prices), 2),
-        "num_sales": len(prices),
+    result = {
+        "avg": raw_stats["avg"],
+        "median": raw_stats["median"],
+        "low": raw_stats["low"],
+        "high": raw_stats["high"],
+        "num_sales": raw_stats["count"],
         "search_query": query,
         "search_url": build_search_url(query),
         "source": "ebay_api",
     }
 
+    graded_stats = _calc_stats(graded_prices)
+    if graded_stats:
+        result["graded_avg"] = graded_stats["avg"]
+        result["graded_low"] = graded_stats["low"]
+        result["graded_high"] = graded_stats["high"]
+        result["graded_num_sales"] = graded_stats["count"]
+
+    return result
+
 
 # ── eBay Scraping (sold listings) ──────────────────────────────────────────
 
-def _extract_prices(soup: BeautifulSoup, card=None) -> list[float]:
-    """Parse sold prices out of an eBay search results page."""
-    prices = []
+def _extract_prices(soup: BeautifulSoup, card=None) -> dict:
+    """Parse sold prices out of an eBay search results page. Returns {'raw': [], 'graded': []}."""
+    raw_prices = []
+    graded_prices = []
     items = soup.select(".s-item")
 
     for item in items:
-        # Skip the first "Shop on eBay" placeholder item
         title_el = item.select_one(".s-item__title")
-        if title_el:
-            title_text = title_el.get_text(strip=True)
-            if title_text == "Shop on eBay" or title_text == "":
+        if not title_el:
+            continue
+        title_text = title_el.get_text(strip=True)
+        if title_text == "Shop on eBay" or title_text == "":
+            continue
+
+        # Classify listing
+        if card:
+            classification = _classify_listing(title_text, card)
+            if classification == "skip":
                 continue
-            # Filter out graded, lots, and wrong parallels
-            if card and _should_skip_listing(title_text, card):
-                continue
+        else:
+            classification = "raw"
 
         # Skip items with "to" price ranges
         price_el = item.select_one(".s-item__price")
@@ -291,10 +321,13 @@ def _extract_prices(soup: BeautifulSoup, card=None) -> list[float]:
             try:
                 price = float(match.group(1).replace(",", ""))
                 if 0.25 < price < 50_000:
-                    prices.append(price)
+                    if classification == "graded":
+                        graded_prices.append(price)
+                    else:
+                        raw_prices.append(price)
             except ValueError:
                 pass
-    return prices
+    return {"raw": raw_prices, "graded": graded_prices}
 
 
 def _get_ebay_scrape_pricing(card, max_results: int = 25) -> dict | None:
@@ -323,29 +356,33 @@ def _get_ebay_scrape_pricing(card, max_results: int = 25) -> dict | None:
     if soup.select_one("#captcha") or "please verify" in resp.text.lower():
         return None
 
-    prices = _extract_prices(soup, card)[:max_results]
+    price_data = _extract_prices(soup, card)
+    raw_prices = price_data["raw"][:max_results]
+    graded_prices = price_data["graded"][:max_results]
 
-    if not prices:
+    raw_stats = _calc_stats(raw_prices)
+    if not raw_stats:
         return None
 
-    # Remove outliers
-    if len(prices) >= 5:
-        med = statistics.median(prices)
-        prices = [p for p in prices if p <= med * 3]
-
-    if not prices:
-        return None
-
-    return {
-        "avg": round(statistics.mean(prices), 2),
-        "median": round(statistics.median(prices), 2),
-        "low": round(min(prices), 2),
-        "high": round(max(prices), 2),
-        "num_sales": len(prices),
+    result = {
+        "avg": raw_stats["avg"],
+        "median": raw_stats["median"],
+        "low": raw_stats["low"],
+        "high": raw_stats["high"],
+        "num_sales": raw_stats["count"],
         "search_query": query,
         "search_url": url,
         "source": "ebay_sold",
     }
+
+    graded_stats = _calc_stats(graded_prices)
+    if graded_stats:
+        result["graded_avg"] = graded_stats["avg"]
+        result["graded_low"] = graded_stats["low"]
+        result["graded_high"] = graded_stats["high"]
+        result["graded_num_sales"] = graded_stats["count"]
+
+    return result
 
 
 # ── AI Estimate (fallback) ─────────────────────────────────────────────────

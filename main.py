@@ -129,6 +129,11 @@ def card_to_dict(card: Card) -> dict:
         "ebay_search_query": card.ebay_search_query,
         "ebay_search_url": card.ebay_search_url,
         "pricing_source": card.pricing_source,
+        # Graded pricing
+        "graded_avg": card.graded_avg,
+        "graded_low": card.graded_low,
+        "graded_high": card.graded_high,
+        "graded_num_sales": card.graded_num_sales,
         # Meta
         "notes": card.notes,
     }
@@ -187,6 +192,10 @@ def process_card(card_id: str):
                 card.ebay_search_url = pricing.get("search_url")
                 card.pricing_source = pricing.get("source")
                 card.estimated_price = pricing["avg"]
+                card.graded_avg = pricing.get("graded_avg")
+                card.graded_low = pricing.get("graded_low")
+                card.graded_high = pricing.get("graded_high")
+                card.graded_num_sales = pricing.get("graded_num_sales")
         except Exception:
             pass  # Pricing failure is non-fatal
 
@@ -215,6 +224,10 @@ def refresh_pricing(card_id: str):
             card.ebay_search_url = pricing.get("search_url")
             card.pricing_source = pricing.get("source")
             card.estimated_price = pricing["avg"]
+            card.graded_avg = pricing.get("graded_avg")
+            card.graded_low = pricing.get("graded_low")
+            card.graded_high = pricing.get("graded_high")
+            card.graded_num_sales = pricing.get("graded_num_sales")
             db.commit()
     finally:
         db.close()

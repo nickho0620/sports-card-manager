@@ -67,6 +67,11 @@ class Card(Base):
     ebay_search_query = Column(String)
     ebay_search_url = Column(String)   # Direct eBay link for manual verification
     pricing_source = Column(String)    # "ebay_sold" or "ai_estimate"
+    # Graded pricing (PSA/BGS/SGC)
+    graded_avg = Column(Float)
+    graded_low = Column(Float)
+    graded_high = Column(Float)
+    graded_num_sales = Column(Integer)
 
     # ── Raw Data ─────────────────────────────────────────────────────────────
     raw_analysis = Column(Text)   # full JSON from Gemini
@@ -91,6 +96,10 @@ def _migrate(eng):
         "product_code": "VARCHAR",
         "ebay_search_url": "VARCHAR",
         "pricing_source": "VARCHAR",
+        "graded_avg": "FLOAT",
+        "graded_low": "FLOAT",
+        "graded_high": "FLOAT",
+        "graded_num_sales": "INTEGER",
     }
     with eng.begin() as conn:
         for col_name, col_type in new_columns.items():
