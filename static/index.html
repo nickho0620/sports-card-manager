@@ -98,8 +98,8 @@
   <!-- Hidden file inputs for image replacement -->
   <input type="file" id="replace-front-input" accept="image/*" class="hidden">
   <input type="file" id="replace-back-input"  accept="image/*" class="hidden">
-  <input type="file" id="replace-front-input-scan" accept="image/*" capture="environment" class="hidden">
-  <input type="file" id="replace-back-input-scan"  accept="image/*" capture="environment" class="hidden">
+  <input type="file" id="replace-front-input-scan" accept="image/*" class="hidden">
+  <input type="file" id="replace-back-input-scan"  accept="image/*" class="hidden">
 
   <script>
     let allCards = [];
@@ -265,10 +265,10 @@
                    onclick="zoomImage('${card.front_image_url}')">`
               : `<div class="w-full rounded-lg flex items-center justify-center bg-slate-800" style="height:200px"><span class="text-slate-500 text-sm">No front image</span></div>`
             }
-            <div class="flex gap-2 mt-2">
-              ${hasFront ? `<button onclick="zoomImage('${card.front_image_url}')" class="img-action-btn bg-slate-700 hover:bg-slate-600 text-slate-200 flex-1">🔍 Zoom</button>` : ''}
-              <button onclick="document.getElementById('replace-front-input').click()" class="img-action-btn bg-blue-600/30 hover:bg-blue-600/50 text-blue-300 flex-1">📷 Photo</button>
-              <button onclick="document.getElementById('replace-front-input-scan').click()" class="img-action-btn bg-green-600/30 hover:bg-green-600/50 text-green-300 flex-1">📐 Scan</button>
+            <div class="grid gap-1 mt-2" style="grid-template-columns:${hasFront ? '1fr 1fr 1fr' : '1fr 1fr'}">
+              ${hasFront ? `<button onclick="zoomImage('${card.front_image_url}')" class="img-action-btn bg-slate-700 hover:bg-slate-600 text-slate-200 text-center" style="padding:3px 4px;font-size:11px">🔍 Zoom</button>` : ''}
+              <button onclick="document.getElementById('replace-front-input').click()" class="img-action-btn bg-blue-600/30 hover:bg-blue-600/50 text-blue-300 text-center" style="padding:3px 4px;font-size:11px">📷 Photo</button>
+              <button onclick="document.getElementById('replace-front-input-scan').click()" class="img-action-btn bg-green-600/30 hover:bg-green-600/50 text-green-300 text-center" style="padding:3px 4px;font-size:11px">📐 Scan</button>
             </div>
           </div>
           <div>
@@ -278,10 +278,10 @@
                    onclick="zoomImage('${card.back_image_url}')">`
               : `<div class="w-full rounded-lg flex items-center justify-center bg-slate-800" style="height:200px"><span class="text-slate-500 text-sm">No back image</span></div>`
             }
-            <div class="flex gap-2 mt-2">
-              ${hasBack ? `<button onclick="zoomImage('${card.back_image_url}')" class="img-action-btn bg-slate-700 hover:bg-slate-600 text-slate-200 flex-1">🔍 Zoom</button>` : ''}
-              <button onclick="document.getElementById('replace-back-input').click()" class="img-action-btn bg-blue-600/30 hover:bg-blue-600/50 text-blue-300 flex-1">📷 Photo</button>
-              <button onclick="document.getElementById('replace-back-input-scan').click()" class="img-action-btn bg-green-600/30 hover:bg-green-600/50 text-green-300 flex-1">📐 Scan</button>
+            <div class="grid gap-1 mt-2" style="grid-template-columns:${hasBack ? '1fr 1fr 1fr' : '1fr 1fr'}">
+              ${hasBack ? `<button onclick="zoomImage('${card.back_image_url}')" class="img-action-btn bg-slate-700 hover:bg-slate-600 text-slate-200 text-center" style="padding:3px 4px;font-size:11px">🔍 Zoom</button>` : ''}
+              <button onclick="document.getElementById('replace-back-input').click()" class="img-action-btn bg-blue-600/30 hover:bg-blue-600/50 text-blue-300 text-center" style="padding:3px 4px;font-size:11px">📷 Photo</button>
+              <button onclick="document.getElementById('replace-back-input-scan').click()" class="img-action-btn bg-green-600/30 hover:bg-green-600/50 text-green-300 text-center" style="padding:3px 4px;font-size:11px">📐 Scan</button>
             </div>
           </div>
         </div>

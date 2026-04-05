@@ -144,10 +144,15 @@ def _build_verification_query(analysis: dict) -> str:
     parts = []
     if analysis.get("year"):
         parts.append(str(analysis["year"]))
-    if analysis.get("brand"):
-        parts.append(analysis["brand"])
-    if analysis.get("set_name"):
-        parts.append(analysis["set_name"])
+    brand = analysis.get("brand", "")
+    set_name = analysis.get("set_name", "")
+    if brand and set_name and set_name.lower().startswith(brand.lower()):
+        parts.append(set_name)
+    else:
+        if brand:
+            parts.append(brand)
+        if set_name:
+            parts.append(set_name)
     if analysis.get("player_name"):
         parts.append(analysis["player_name"])
     if analysis.get("card_number"):

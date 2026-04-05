@@ -57,10 +57,14 @@ def build_search_query(card) -> str:
     parts = []
     if card.year:
         parts.append(str(card.year))
-    if card.brand:
-        parts.append(card.brand)
-    if card.set_name:
+    # Skip brand if set_name already includes it (e.g. "Topps Chrome" already has "Topps")
+    if card.brand and card.set_name and card.set_name.lower().startswith(card.brand.lower()):
         parts.append(card.set_name)
+    else:
+        if card.brand:
+            parts.append(card.brand)
+        if card.set_name:
+            parts.append(card.set_name)
     if card.player_name:
         parts.append(card.player_name)
     if getattr(card, 'insert_set', None):
