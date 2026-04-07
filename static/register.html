@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Login — Sports Card Manager</title>
+  <title>Create Account — Sports Card Manager</title>
   <link rel="stylesheet" href="/static/styles.css">
   <style>
     body { background: #0f172a; color: #f1f5f9; display: flex; align-items: center; justify-content: center; min-height: 100vh; }
@@ -22,41 +22,46 @@
   <div class="login-box">
     <div class="text-center mb-6">
       <span class="text-4xl">⚾</span>
-      <h1 class="text-xl font-bold mt-3">Sports Card Manager</h1>
-      <p class="text-sm text-slate-400 mt-1">Sign in to manage your cards</p>
+      <h1 class="text-xl font-bold mt-3">Create your account</h1>
+      <p class="text-sm text-slate-400 mt-1">Free accounts can scan up to 5 cards</p>
     </div>
-    <form id="login-form">
+    <form id="register-form">
       <div class="mb-4">
         <label class="block text-xs text-slate-400 mb-1.5 font-medium">Username</label>
-        <input type="text" id="username" class="login-input" placeholder="Enter username" autocomplete="username" required>
+        <input type="text" id="username" class="login-input" placeholder="3-32 characters" autocomplete="username" required>
+      </div>
+      <div class="mb-4">
+        <label class="block text-xs text-slate-400 mb-1.5 font-medium">Email <span class="text-slate-500">(optional)</span></label>
+        <input type="email" id="email" class="login-input" placeholder="you@example.com" autocomplete="email">
       </div>
       <div class="mb-6">
         <label class="block text-xs text-slate-400 mb-1.5 font-medium">Password</label>
-        <input type="password" id="password" class="login-input" placeholder="Enter password" autocomplete="current-password" required>
+        <input type="password" id="password" class="login-input" placeholder="At least 6 characters" autocomplete="new-password" required>
       </div>
-      <button type="submit" class="login-btn" id="login-btn">Sign In</button>
+      <button type="submit" class="login-btn" id="register-btn">Create Account</button>
       <p class="error-msg" id="error-msg"></p>
       <p class="text-center mt-4">
-        <a href="/register" class="link">New here? Create an account</a>
+        <a href="/login" class="link">Already have an account? Sign in</a>
       </p>
     </form>
   </div>
 
   <script>
-    document.getElementById('login-form').addEventListener('submit', async (e) => {
+    document.getElementById('register-form').addEventListener('submit', async (e) => {
       e.preventDefault();
-      const btn = document.getElementById('login-btn');
+      const btn = document.getElementById('register-btn');
       const err = document.getElementById('error-msg');
       btn.disabled = true;
-      btn.textContent = 'Signing in...';
+      btn.textContent = 'Creating account...';
       err.textContent = '';
 
       try {
-        const res = await fetch('/api/auth/login', {
+        const res = await fetch('/api/auth/register', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             username: document.getElementById('username').value,
+            email: document.getElementById('email').value,
             password: document.getElementById('password').value,
           }),
         });
@@ -64,13 +69,13 @@
           window.location.href = '/';
         } else {
           const data = await res.json();
-          err.textContent = data.detail || 'Invalid credentials';
+          err.textContent = data.detail || 'Registration failed';
         }
       } catch (ex) {
         err.textContent = 'Connection error. Try again.';
       }
       btn.disabled = false;
-      btn.textContent = 'Sign In';
+      btn.textContent = 'Create Account';
     });
   </script>
 </body>

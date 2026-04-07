@@ -28,7 +28,7 @@ from PIL import Image
 from sqlalchemy import or_
 
 from card_analyzer import analyze_card
-from database import Card, SessionLocal, init_db
+from database import Card, SessionLocal, User, init_db
 from ebay_pricing import get_ebay_pricing
 from image_processor import process_card_scan
 
@@ -53,24 +53,91 @@ ADMIN_USERNAME = os.getenv("ADMIN_USERNAME", "admin")
 ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "changeme")
 SESSION_SECRET = os.getenv("SESSION_SECRET", secrets.token_hex(32))
 
-# In-memory session store (survives until server restart)
-_active_sessions: set[str] = set()
+# In-memory session store: token -> user_id
+_active_sessions: dict[str, str] = {}
 
 
-def _create_session() -> str:
+def _hash_password(password: str) -> str:
+    """PBKDF2-HMAC-SHA256 with random salt. Format: salt$hash (hex)."""
+    salt = secrets.token_bytes(16)
+    derived = hashlib.pbkdf2_hmac("sha256", password.encode(), salt, 200_000)
+    return salt.hex() + "$" + derived.hex()
+
+
+def _verify_password(password: str, stored: str) -> bool:
+    try:
+        salt_hex, hash_hex = stored.split("$", 1)
+        salt = bytes.fromhex(salt_hex)
+        derived = hashlib.pbkdf2_hmac("sha256", password.encode(), salt, 200_000)
+        return hmac.compare_digest(derived.hex(), hash_hex)
+    except Exception:
+        return False
+
+
+def _create_session(user_id: str) -> str:
     token = secrets.token_hex(32)
-    _active_sessions.add(token)
+    _active_sessions[token] = user_id
     return token
 
 
-def _check_auth(request: Request) -> bool:
+def _current_user_id(request: Request) -> str | None:
     token = request.cookies.get("session")
-    return token in _active_sessions if token else False
+    return _active_sessions.get(token) if token else None
 
 
-def require_auth(request: Request):
-    if not _check_auth(request):
+def _current_user(request: Request) -> User | None:
+    uid = _current_user_id(request)
+    if not uid:
+        return None
+    db = SessionLocal()
+    try:
+        return db.get(User, uid)
+    finally:
+        db.close()
+
+
+def require_auth(request: Request) -> User:
+    user = _current_user(request)
+    if not user:
         raise HTTPException(status_code=401, detail="Login required")
+    return user
+
+
+def require_admin(request: Request) -> User:
+    user = require_auth(request)
+    if not user.is_admin:
+        raise HTTPException(status_code=403, detail="Admin access required")
+    return user
+
+
+def _bootstrap_admin():
+    """Create the admin user from env vars if it doesn't exist."""
+    db = SessionLocal()
+    try:
+        existing = db.query(User).filter(User.username == ADMIN_USERNAME).first()
+        if existing:
+            # Ensure flagged as admin
+            if not existing.is_admin:
+                existing.is_admin = True
+                db.commit()
+            return
+        admin = User(
+            id=str(uuid.uuid4()),
+            username=ADMIN_USERNAME,
+            password_hash=_hash_password(ADMIN_PASSWORD),
+            is_admin=True,
+            card_limit=999999,
+            subscription_tier="unlimited",
+        )
+        db.add(admin)
+        db.commit()
+        print(f"[auth] Bootstrapped admin user: {ADMIN_USERNAME}")
+    finally:
+        db.close()
+
+
+def _user_card_count(db, user_id: str) -> int:
+    return db.query(Card).filter(Card.owner_id == user_id).count()
 
 # Cloudinary config (optional — falls back to local storage if not set)
 USE_CLOUDINARY = bool(os.getenv("CLOUDINARY_CLOUD_NAME"))
@@ -85,6 +152,7 @@ if USE_CLOUDINARY:
 @app.on_event("startup")
 def startup():
     init_db()
+    _bootstrap_admin()
 
 
 # Serve card images (local mode only — Cloudinary serves its own URLs)
@@ -111,29 +179,93 @@ def login_page():
     return FileResponse(os.path.join(STATIC_DIR, "login.html"))
 
 
+@app.get("/register", include_in_schema=False)
+def register_page():
+    return FileResponse(os.path.join(STATIC_DIR, "register.html"))
+
+
+@app.get("/admin", include_in_schema=False)
+def admin_page():
+    return FileResponse(os.path.join(STATIC_DIR, "admin.html"))
+
+
 # ── Auth API ────────────────────────────────────────────────────────────────
+
+def user_to_dict(user: User, db=None) -> dict:
+    cards_used = 0
+    if db is not None:
+        cards_used = _user_card_count(db, user.id)
+    return {
+        "id": user.id,
+        "username": user.username,
+        "email": user.email,
+        "is_admin": user.is_admin,
+        "card_limit": user.card_limit,
+        "subscription_tier": user.subscription_tier,
+        "subscription_expires_at": (user.subscription_expires_at.isoformat() + "Z") if user.subscription_expires_at else None,
+        "cards_used": cards_used,
+        "created_at": (user.created_at.isoformat() + "Z") if user.created_at else None,
+    }
+
+
+@app.post("/api/auth/register")
+def register(body: dict):
+    username = (body.get("username") or "").strip()
+    password = body.get("password") or ""
+    email = (body.get("email") or "").strip() or None
+
+    if len(username) < 3 or len(username) > 32:
+        raise HTTPException(status_code=400, detail="Username must be 3-32 characters")
+    if not username.replace("_", "").replace("-", "").isalnum():
+        raise HTTPException(status_code=400, detail="Username may only contain letters, numbers, _ and -")
+    if len(password) < 6:
+        raise HTTPException(status_code=400, detail="Password must be at least 6 characters")
+
+    db = SessionLocal()
+    try:
+        if db.query(User).filter(User.username == username).first():
+            raise HTTPException(status_code=400, detail="Username already taken")
+        user = User(
+            id=str(uuid.uuid4()),
+            username=username,
+            email=email,
+            password_hash=_hash_password(password),
+            is_admin=False,
+            card_limit=5,
+            subscription_tier="free",
+        )
+        db.add(user)
+        db.commit()
+        token = _create_session(user.id)
+        resp = JSONResponse({"status": "ok", "user": user_to_dict(user, db)})
+        resp.set_cookie("session", token, httponly=True, samesite="lax", max_age=60 * 60 * 24 * 7)
+        return resp
+    finally:
+        db.close()
+
 
 @app.post("/api/auth/login")
 def login(body: dict):
-    username = body.get("username", "")
-    password = body.get("password", "")
-    if username == ADMIN_USERNAME and password == ADMIN_PASSWORD:
-        token = _create_session()
-        resp = JSONResponse({"status": "ok"})
-        resp.set_cookie(
-            "session", token,
-            httponly=True, samesite="lax",
-            max_age=60 * 60 * 24 * 7,  # 7 days
-        )
+    username = (body.get("username") or "").strip()
+    password = body.get("password") or ""
+    db = SessionLocal()
+    try:
+        user = db.query(User).filter(User.username == username).first()
+        if not user or not _verify_password(password, user.password_hash):
+            raise HTTPException(status_code=401, detail="Invalid username or password")
+        token = _create_session(user.id)
+        resp = JSONResponse({"status": "ok", "user": user_to_dict(user, db)})
+        resp.set_cookie("session", token, httponly=True, samesite="lax", max_age=60 * 60 * 24 * 7)
         return resp
-    raise HTTPException(status_code=401, detail="Invalid username or password")
+    finally:
+        db.close()
 
 
 @app.post("/api/auth/logout")
 def logout(request: Request):
     token = request.cookies.get("session")
     if token:
-        _active_sessions.discard(token)
+        _active_sessions.pop(token, None)
     resp = JSONResponse({"status": "ok"})
     resp.delete_cookie("session")
     return resp
@@ -141,17 +273,262 @@ def logout(request: Request):
 
 @app.get("/api/auth/check")
 def auth_check(request: Request):
-    return {"authenticated": _check_auth(request)}
+    user = _current_user(request)
+    if not user:
+        return {"authenticated": False}
+    db = SessionLocal()
+    try:
+        return {"authenticated": True, "user": user_to_dict(user, db)}
+    finally:
+        db.close()
+
+
+@app.get("/api/auth/me")
+def auth_me(request: Request):
+    user = require_auth(request)
+    db = SessionLocal()
+    try:
+        return user_to_dict(user, db)
+    finally:
+        db.close()
+
+
+# ── Admin: User Management ──────────────────────────────────────────────────
+
+@app.get("/api/admin/users")
+def admin_list_users(request: Request):
+    require_admin(request)
+    db = SessionLocal()
+    try:
+        users = db.query(User).order_by(User.created_at.desc()).all()
+        return {"users": [user_to_dict(u, db) for u in users]}
+    finally:
+        db.close()
+
+
+@app.post("/api/admin/users")
+def admin_create_user(request: Request, body: dict):
+    require_admin(request)
+    username = (body.get("username") or "").strip()
+    password = body.get("password") or ""
+    email = (body.get("email") or "").strip() or None
+    is_admin_flag = bool(body.get("is_admin", False))
+    card_limit = body.get("card_limit", 5)
+    tier = body.get("subscription_tier", "free")
+
+    if len(username) < 3:
+        raise HTTPException(status_code=400, detail="Username must be at least 3 characters")
+    if len(password) < 6:
+        raise HTTPException(status_code=400, detail="Password must be at least 6 characters")
+    if tier not in ("free", "pro", "unlimited"):
+        raise HTTPException(status_code=400, detail="Invalid tier")
+
+    db = SessionLocal()
+    try:
+        if db.query(User).filter(User.username == username).first():
+            raise HTTPException(status_code=400, detail="Username already taken")
+        user = User(
+            id=str(uuid.uuid4()),
+            username=username,
+            email=email,
+            password_hash=_hash_password(password),
+            is_admin=is_admin_flag,
+            card_limit=int(card_limit) if not is_admin_flag else 999999,
+            subscription_tier="unlimited" if is_admin_flag else tier,
+        )
+        db.add(user)
+        db.commit()
+        return user_to_dict(user, db)
+    finally:
+        db.close()
+
+
+@app.patch("/api/admin/users/{user_id}")
+def admin_update_user(request: Request, user_id: str, body: dict):
+    require_admin(request)
+    db = SessionLocal()
+    try:
+        user = db.get(User, user_id)
+        if not user:
+            raise HTTPException(status_code=404, detail="User not found")
+        if "card_limit" in body:
+            try:
+                user.card_limit = max(0, int(body["card_limit"]))
+            except (ValueError, TypeError):
+                raise HTTPException(status_code=400, detail="card_limit must be an integer")
+        if "subscription_tier" in body:
+            tier = body["subscription_tier"]
+            if tier not in ("free", "pro", "unlimited"):
+                raise HTTPException(status_code=400, detail="Invalid subscription tier")
+            user.subscription_tier = tier
+            # Auto-bump limits for paid tiers
+            if tier == "pro" and user.card_limit < 100:
+                user.card_limit = 100
+            elif tier == "unlimited":
+                user.card_limit = 999999
+        if "is_admin" in body:
+            user.is_admin = bool(body["is_admin"])
+        db.commit()
+        return user_to_dict(user, db)
+    finally:
+        db.close()
+
+
+@app.delete("/api/admin/users/{user_id}")
+def admin_delete_user(
+    request: Request,
+    user_id: str,
+    delete_cards: bool = Query(default=False),
+):
+    admin = require_admin(request)
+    if user_id == admin.id:
+        raise HTTPException(status_code=400, detail="Cannot delete yourself")
+    db = SessionLocal()
+    try:
+        user = db.get(User, user_id)
+        if not user:
+            raise HTTPException(status_code=404, detail="User not found")
+        # Optionally delete all of the user's cards (and their files)
+        if delete_cards:
+            user_cards = db.query(Card).filter(Card.owner_id == user_id).all()
+            for c in user_cards:
+                if USE_CLOUDINARY:
+                    try:
+                        cloudinary.uploader.destroy(f"cards/{c.id}/front")
+                        cloudinary.uploader.destroy(f"cards/{c.id}/back")
+                    except Exception:
+                        pass
+                else:
+                    card_dir = os.path.join(UPLOAD_DIR, c.id)
+                    if os.path.exists(card_dir):
+                        shutil.rmtree(card_dir, ignore_errors=True)
+                db.delete(c)
+        else:
+            # Orphan: just clear ownership
+            db.query(Card).filter(Card.owner_id == user_id).update({Card.owner_id: None})
+        db.delete(user)
+        db.commit()
+        return {"status": "deleted"}
+    finally:
+        db.close()
+
+
+@app.post("/api/admin/users/{user_id}/reset-password")
+def admin_reset_password(request: Request, user_id: str, body: dict):
+    require_admin(request)
+    new_password = body.get("password") or ""
+    if len(new_password) < 6:
+        raise HTTPException(status_code=400, detail="Password must be at least 6 characters")
+    db = SessionLocal()
+    try:
+        user = db.get(User, user_id)
+        if not user:
+            raise HTTPException(status_code=404, detail="User not found")
+        user.password_hash = _hash_password(new_password)
+        db.commit()
+        # Invalidate any active sessions for this user
+        for tok in [t for t, uid in _active_sessions.items() if uid == user_id]:
+            _active_sessions.pop(tok, None)
+        return {"status": "ok"}
+    finally:
+        db.close()
+
+
+@app.post("/api/admin/cards/{card_id}/reassign")
+def admin_reassign_card(request: Request, card_id: str, body: dict):
+    """Transfer card ownership to another user."""
+    require_admin(request)
+    new_owner_id = body.get("owner_id")
+    db = SessionLocal()
+    try:
+        card = db.get(Card, card_id)
+        if not card:
+            raise HTTPException(status_code=404, detail="Card not found")
+        if new_owner_id:
+            new_owner = db.get(User, new_owner_id)
+            if not new_owner:
+                raise HTTPException(status_code=404, detail="New owner not found")
+        card.owner_id = new_owner_id or None
+        db.commit()
+        return card_to_dict(card, db)
+    finally:
+        db.close()
+
+
+@app.get("/api/admin/stats")
+def admin_stats(request: Request):
+    require_admin(request)
+    db = SessionLocal()
+    try:
+        total_users = db.query(User).count()
+        admin_users = db.query(User).filter(User.is_admin == True).count()
+        paying_users = db.query(User).filter(User.subscription_tier.in_(("pro", "unlimited"))).count()
+        total_cards = db.query(Card).count()
+        complete_cards = db.query(Card).filter(Card.status == "complete").count()
+        orphaned_cards = db.query(Card).filter(Card.owner_id.is_(None)).count()
+        total_value = sum(
+            (c.estimated_price or 0)
+            for c in db.query(Card).filter(Card.status == "complete").all()
+        )
+        return {
+            "total_users": total_users,
+            "admin_users": admin_users,
+            "paying_users": paying_users,
+            "total_cards": total_cards,
+            "complete_cards": complete_cards,
+            "orphaned_cards": orphaned_cards,
+            "total_value": round(total_value, 2),
+        }
+    finally:
+        db.close()
+
+
+# ── Subscription (stub) ─────────────────────────────────────────────────────
+
+@app.post("/api/subscription/upgrade")
+def subscription_upgrade(request: Request, body: dict):
+    """Stub upgrade endpoint. Real implementation would integrate Stripe.
+    For now this just sets the tier so admin can manually approve later."""
+    user = require_auth(request)
+    tier = body.get("tier", "pro")
+    if tier not in ("pro", "unlimited"):
+        raise HTTPException(status_code=400, detail="Invalid tier")
+    # In a real flow this would create a Stripe checkout session and return the URL.
+    return {
+        "status": "pending",
+        "message": "Subscription checkout is not yet enabled. Contact the admin to upgrade your account.",
+        "requested_tier": tier,
+    }
 
 
 # ── Helper ───────────────────────────────────────────────────────────────────
 
-def card_to_dict(card: Card) -> dict:
+_username_cache: dict[str, str] = {}
+
+
+def _get_username(db, user_id: str | None) -> str | None:
+    if not user_id:
+        return None
+    if user_id in _username_cache:
+        return _username_cache[user_id]
+    u = db.get(User, user_id)
+    name = u.username if u else None
+    if name:
+        _username_cache[user_id] = name
+    return name
+
+
+def card_to_dict(card: Card, db=None) -> dict:
     # If paths are URLs (Cloudinary), use them directly; otherwise build local URLs
     front_url = card.front_image_path if card.front_image_path and card.front_image_path.startswith("http") else f"/uploads/{card.id}/front.jpg"
     back_url = card.back_image_path if card.back_image_path and card.back_image_path.startswith("http") else f"/uploads/{card.id}/back.jpg"
+    owner_username = None
+    if db is not None and card.owner_id:
+        owner_username = _get_username(db, card.owner_id)
     return {
         "id": card.id,
+        "owner_id": card.owner_id,
+        "owner_username": owner_username,
         "created_at": (card.created_at.isoformat() + "Z") if card.created_at else None,
         "front_image_url": front_url,
         "back_image_url": back_url,
@@ -315,15 +692,24 @@ def _resize_image_bytes(raw_bytes: bytes) -> bytes:
 
 @app.get("/api/cards")
 def list_cards(
+    request: Request,
     search: str = Query(default=""),
     status: str = Query(default=""),
+    owner: str = Query(default=""),
     limit: int = Query(default=60, le=200),
     offset: int = Query(default=0),
 ):
-    """List all cards with optional search + status filter."""
+    """List all cards with optional search + status filter. owner='mine' restricts to current user."""
     db = SessionLocal()
     try:
         q = db.query(Card)
+        if owner == "mine":
+            user = _current_user(request)
+            if not user:
+                raise HTTPException(status_code=401, detail="Login required")
+            q = q.filter(Card.owner_id == user.id)
+        elif owner:
+            q = q.filter(Card.owner_id == owner)
         if search:
             like = f"%{search}%"
             q = q.filter(
@@ -351,7 +737,7 @@ def list_cards(
         }
 
         return {
-            "cards": [card_to_dict(c) for c in cards],
+            "cards": [card_to_dict(c, db) for c in cards],
             "total": total,
             "stats": stats,
         }
@@ -366,7 +752,7 @@ def get_card(card_id: str):
         card = db.get(Card, card_id)
         if not card:
             raise HTTPException(status_code=404, detail="Card not found")
-        return card_to_dict(card)
+        return card_to_dict(card, db)
     finally:
         db.close()
 
@@ -382,7 +768,7 @@ async def update_card_image(
     scan_mode: bool = Query(default=False),
 ):
     """Replace front or back image for an existing card."""
-    require_auth(request)
+    user = require_auth(request)
     if side not in ("front", "back"):
         raise HTTPException(status_code=400, detail="Side must be 'front' or 'back'")
 
@@ -391,6 +777,8 @@ async def update_card_image(
         card = db.get(Card, card_id)
         if not card:
             raise HTTPException(status_code=404, detail="Card not found")
+        if not user.is_admin and card.owner_id != user.id:
+            raise HTTPException(status_code=403, detail="You can only edit your own cards")
 
         raw = await image.read()
         img_bytes = process_card_scan(raw) if scan_mode else _resize_image_bytes(raw)
@@ -417,7 +805,7 @@ async def update_card_image(
         if reanalyze and card.front_image_path and card.back_image_path:
             background_tasks.add_task(process_card, card_id)
 
-        return card_to_dict(card)
+        return card_to_dict(card, db)
     finally:
         db.close()
 
@@ -431,9 +819,21 @@ async def upload_card(
     scan_mode: bool = Query(default=False),
 ):
     """Receive front and/or back images. At least one required. scan_mode applies edge detection + perspective correction."""
-    require_auth(request)
+    user = require_auth(request)
     if not front_image and not back_image:
         raise HTTPException(status_code=400, detail="At least one image is required")
+
+    # Enforce per-user card limit
+    db_check = SessionLocal()
+    try:
+        used = _user_card_count(db_check, user.id)
+        if not user.is_admin and used >= user.card_limit:
+            raise HTTPException(
+                status_code=403,
+                detail=f"Card limit reached ({user.card_limit}). Upgrade your account or contact admin to increase your limit.",
+            )
+    finally:
+        db_check.close()
 
     card_id = str(uuid.uuid4())
     front_path = None
@@ -479,6 +879,7 @@ async def upload_card(
         front_image_path=front_path,
         back_image_path=back_path,
         status="pending",
+        owner_id=user.id,
     )
     db.add(card)
     db.commit()
@@ -494,7 +895,7 @@ async def upload_card(
 @app.patch("/api/cards/{card_id}")
 def update_card(request: Request, card_id: str, body: dict):
     """Update any card field. Supports all detail fields + notes."""
-    require_auth(request)
+    user = require_auth(request)
     allowed = {
         "notes", "condition", "estimated_price", "player_name", "year",
         "brand", "set_name", "team", "description", "subset", "insert_set", "product_code", "card_number",
@@ -508,11 +909,13 @@ def update_card(request: Request, card_id: str, body: dict):
         card = db.get(Card, card_id)
         if not card:
             raise HTTPException(status_code=404, detail="Card not found")
+        if not user.is_admin and card.owner_id != user.id:
+            raise HTTPException(status_code=403, detail="You can only edit your own cards")
         for key, value in body.items():
             if key in allowed:
                 setattr(card, key, value)
         db.commit()
-        return card_to_dict(card)
+        return card_to_dict(card, db)
     finally:
         db.close()
 
@@ -520,12 +923,14 @@ def update_card(request: Request, card_id: str, body: dict):
 @app.post("/api/cards/{card_id}/reprice")
 def reprice_card(request: Request, card_id: str, background_tasks: BackgroundTasks):
     """Trigger a fresh eBay pricing lookup."""
-    require_auth(request)
+    user = require_auth(request)
     db = SessionLocal()
     try:
         card = db.get(Card, card_id)
         if not card:
             raise HTTPException(status_code=404, detail="Card not found")
+        if not user.is_admin and card.owner_id != user.id:
+            raise HTTPException(status_code=403, detail="You can only reprice your own cards")
     finally:
         db.close()
     background_tasks.add_task(refresh_pricing, card_id)
@@ -535,12 +940,14 @@ def reprice_card(request: Request, card_id: str, background_tasks: BackgroundTas
 @app.delete("/api/cards/{card_id}")
 def delete_card(request: Request, card_id: str):
     """Delete a card and its images."""
-    require_auth(request)
+    user = require_auth(request)
     db = SessionLocal()
     try:
         card = db.get(Card, card_id)
         if not card:
             raise HTTPException(status_code=404, detail="Card not found")
+        if not user.is_admin and card.owner_id != user.id:
+            raise HTTPException(status_code=403, detail="You can only delete your own cards")
         if USE_CLOUDINARY:
             try:
                 cloudinary.uploader.destroy(f"cards/{card_id}/front")

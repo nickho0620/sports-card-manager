@@ -369,6 +369,14 @@
         if (backFile)  form.append('back_image',  backFile,  'back.jpg');
         const url = useScanMode ? `${API_BASE}/api/cards/upload?scan_mode=true` : `${API_BASE}/api/cards/upload`;
         const res = await fetch(url, { method: 'POST', body: form });
+        if (res.status === 401) {
+          window.location.href = '/login';
+          return;
+        }
+        if (res.status === 403) {
+          const data = await res.json().catch(() => ({}));
+          throw new Error(data.detail || 'Card limit reached. Upgrade your account to scan more cards.');
+        }
         if (!res.ok) throw new Error(`Server error ${res.status}`);
         const data = await res.json();
         resultCardId = data.card_id;

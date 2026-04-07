@@ -1,0 +1,493 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Admin Console — Sports Card Manager</title>
+  <link rel="stylesheet" href="/static/styles.css">
+  <style>
+    body { background:#0f172a; color:#f1f5f9; min-height:100vh; }
+    .tab { padding:10px 18px; border-radius:10px 10px 0 0; font-weight:600; font-size:14px; cursor:pointer; border:none; background:transparent; color:#94a3b8; transition:all .15s; }
+    .tab.active { background:#1e293b; color:#fff; }
+    .tab:hover:not(.active) { color:#cbd5e1; }
+    .panel { background:#1e293b; border-radius:0 12px 12px 12px; padding:24px; min-height:400px; }
+    .stat-card { background:#1e293b; border:1px solid #334155; border-radius:12px; padding:16px; }
+    .stat-value { font-size:28px; font-weight:700; }
+    .stat-label { font-size:11px; color:#94a3b8; text-transform:uppercase; letter-spacing:.06em; }
+    .input { background:#0f172a; border:1px solid #334155; border-radius:8px; padding:8px 12px; color:#f1f5f9; font-size:13px; outline:none; transition:border-color .15s; }
+    .input:focus { border-color:#3b82f6; }
+    .btn { padding:8px 16px; border-radius:8px; font-weight:600; font-size:13px; cursor:pointer; border:none; transition:all .15s; }
+    .btn-primary { background:#3b82f6; color:white; }
+    .btn-primary:hover { background:#2563eb; }
+    .btn-danger { background:#7f1d1d; color:#fca5a5; }
+    .btn-danger:hover { background:#991b1b; color:#fee2e2; }
+    .btn-success { background:#15803d; color:white; }
+    .btn-success:hover { background:#16a34a; }
+    .btn-ghost { background:transparent; color:#94a3b8; border:1px solid #334155; }
+    .btn-ghost:hover { background:#1e293b; color:#cbd5e1; }
+    table { width:100%; border-collapse:collapse; font-size:13px; }
+    th { text-align:left; padding:10px 12px; border-bottom:1px solid #334155; color:#94a3b8; font-size:11px; text-transform:uppercase; letter-spacing:.05em; font-weight:600; }
+    td { padding:10px 12px; border-bottom:1px solid #1e293b; }
+    tr:hover td { background:#0f172a; }
+    .badge-tag { display:inline-block; padding:2px 8px; border-radius:999px; font-size:10px; font-weight:700; }
+    .b-admin { background:#7c3aed; color:white; }
+    .b-pro { background:#2563eb; color:white; }
+    .b-unlim { background:#9333ea; color:white; }
+    .b-free { background:#475569; color:#cbd5e1; }
+    .modal-bg { position:fixed; inset:0; background:rgba(0,0,0,.75); z-index:50; display:flex; align-items:center; justify-content:center; padding:16px; }
+    .modal-box { background:#1e293b; border-radius:16px; width:100%; max-width:500px; padding:24px; max-height:90vh; overflow-y:auto; }
+  </style>
+</head>
+<body>
+  <!-- Header -->
+  <header class="border-b border-slate-800 px-6 py-4 flex items-center justify-between">
+    <div class="flex items-center gap-3">
+      <span class="text-2xl">⚙️</span>
+      <div>
+        <h1 class="text-lg font-bold leading-tight">Admin Console</h1>
+        <p class="text-xs text-slate-400" id="admin-greet">Loading…</p>
+      </div>
+    </div>
+    <div class="flex items-center gap-2">
+      <a href="/" class="btn btn-ghost">← Back to Dashboard</a>
+      <button onclick="doLogout()" class="btn btn-ghost">Logout</button>
+    </div>
+  </header>
+
+  <main class="px-6 py-6 max-w-6xl mx-auto">
+    <!-- Stats overview -->
+    <div id="stats-grid" class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6"></div>
+
+    <!-- Tabs -->
+    <div class="flex gap-1 border-b border-slate-700">
+      <button class="tab active" onclick="switchTab('users')" id="tab-users">👥 Users</button>
+      <button class="tab" onclick="switchTab('cards')" id="tab-cards">🃏 Cards</button>
+      <button class="tab" onclick="switchTab('create')" id="tab-create">➕ New User</button>
+    </div>
+
+    <!-- USERS TAB -->
+    <div id="panel-users" class="panel">
+      <div class="flex items-center justify-between mb-4 flex-wrap gap-3">
+        <h2 class="font-bold text-lg">All Users</h2>
+        <input id="user-search" type="text" placeholder="Search by username…" class="input w-64" oninput="renderUsers()">
+      </div>
+      <div class="overflow-x-auto">
+        <table id="users-table">
+          <thead>
+            <tr>
+              <th>User</th>
+              <th>Email</th>
+              <th>Role / Tier</th>
+              <th>Cards</th>
+              <th>Joined</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody id="users-tbody"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- CARDS TAB -->
+    <div id="panel-cards" class="panel hidden">
+      <div class="flex items-center justify-between mb-4 flex-wrap gap-3">
+        <h2 class="font-bold text-lg">All Cards</h2>
+        <div class="flex gap-2 flex-wrap">
+          <input id="card-search" type="text" placeholder="Search player, brand, set…" class="input w-64" oninput="loadCardsTab()">
+          <select id="card-owner-filter" class="input" onchange="loadCardsTab()">
+            <option value="">All owners</option>
+          </select>
+        </div>
+      </div>
+      <div class="overflow-x-auto">
+        <table>
+          <thead>
+            <tr>
+              <th></th>
+              <th>Card</th>
+              <th>Owner</th>
+              <th>Status</th>
+              <th>Price</th>
+              <th>Created</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody id="cards-tbody"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- CREATE USER TAB -->
+    <div id="panel-create" class="panel hidden">
+      <h2 class="font-bold text-lg mb-4">Create New User</h2>
+      <form id="create-user-form" class="grid grid-cols-1 md:grid-cols-2 gap-4 max-w-2xl">
+        <div>
+          <label class="block text-xs text-slate-400 mb-1.5 font-medium">Username *</label>
+          <input id="cu-username" class="input w-full" required minlength="3">
+        </div>
+        <div>
+          <label class="block text-xs text-slate-400 mb-1.5 font-medium">Email</label>
+          <input id="cu-email" type="email" class="input w-full">
+        </div>
+        <div>
+          <label class="block text-xs text-slate-400 mb-1.5 font-medium">Password *</label>
+          <input id="cu-password" type="password" class="input w-full" required minlength="6">
+        </div>
+        <div>
+          <label class="block text-xs text-slate-400 mb-1.5 font-medium">Card Limit</label>
+          <input id="cu-limit" type="number" min="0" value="5" class="input w-full">
+        </div>
+        <div>
+          <label class="block text-xs text-slate-400 mb-1.5 font-medium">Subscription Tier</label>
+          <select id="cu-tier" class="input w-full">
+            <option value="free">Free</option>
+            <option value="pro">Pro</option>
+            <option value="unlimited">Unlimited</option>
+          </select>
+        </div>
+        <div class="flex items-center gap-2 mt-6">
+          <input id="cu-admin" type="checkbox" class="w-4 h-4">
+          <label for="cu-admin" class="text-sm text-slate-300">Make this user an admin</label>
+        </div>
+        <div class="md:col-span-2 flex items-center gap-3 mt-2">
+          <button type="submit" class="btn btn-primary">Create User</button>
+          <span id="cu-msg" class="text-xs"></span>
+        </div>
+      </form>
+    </div>
+  </main>
+
+  <!-- Toast -->
+  <div id="toast" class="fixed bottom-6 left-1/2 -translate-x-1/2 bg-slate-700 text-white text-sm px-5 py-2.5 rounded-xl shadow-xl z-50 opacity-0 transition-opacity"></div>
+
+  <!-- Reset password modal -->
+  <div id="pw-modal" class="modal-bg hidden" onclick="if(event.target===this)this.classList.add('hidden')">
+    <div class="modal-box">
+      <div class="flex items-center justify-between mb-4">
+        <h3 class="font-bold text-lg">Reset Password</h3>
+        <button onclick="document.getElementById('pw-modal').classList.add('hidden')" class="text-slate-400 hover:text-white text-2xl leading-none">&times;</button>
+      </div>
+      <p class="text-sm text-slate-400 mb-3">New password for <span id="pw-username" class="font-semibold text-white"></span></p>
+      <input id="pw-new" type="password" placeholder="At least 6 characters" class="input w-full mb-4">
+      <button onclick="submitResetPassword()" class="btn btn-primary w-full">Reset Password</button>
+    </div>
+  </div>
+
+  <!-- Reassign card modal -->
+  <div id="reassign-modal" class="modal-bg hidden" onclick="if(event.target===this)this.classList.add('hidden')">
+    <div class="modal-box">
+      <div class="flex items-center justify-between mb-4">
+        <h3 class="font-bold text-lg">Reassign Card</h3>
+        <button onclick="document.getElementById('reassign-modal').classList.add('hidden')" class="text-slate-400 hover:text-white text-2xl leading-none">&times;</button>
+      </div>
+      <p class="text-sm text-slate-400 mb-3">Transfer card ownership</p>
+      <select id="ra-owner" class="input w-full mb-4"></select>
+      <button onclick="submitReassign()" class="btn btn-primary w-full">Transfer Ownership</button>
+    </div>
+  </div>
+
+  <script>
+    let allUsers = [];
+    let allCards = [];
+    let pwUserId = null;
+    let raCardId = null;
+    let me = null;
+
+    // ── Init ────────────────────────────────────────────────────────────────
+    async function init() {
+      // Verify admin
+      try {
+        const res = await fetch('/api/auth/check');
+        const data = await res.json();
+        if (!data.authenticated) { window.location.href = '/login'; return; }
+        if (!data.user.is_admin) { document.body.innerHTML = '<div class="p-12 text-center"><h1 class="text-2xl font-bold text-red-400">Access Denied</h1><p class="text-slate-400 mt-2">You must be an admin to view this page.</p><a href="/" class="inline-block mt-6 btn btn-primary">Back to Dashboard</a></div>'; return; }
+        me = data.user;
+        document.getElementById('admin-greet').textContent = `Signed in as ${me.username}`;
+      } catch {
+        window.location.href = '/login';
+        return;
+      }
+      await loadStats();
+      await loadUsers();
+    }
+
+    async function doLogout() {
+      await fetch('/api/auth/logout', { method: 'POST' });
+      window.location.href = '/login';
+    }
+
+    // ── Stats ───────────────────────────────────────────────────────────────
+    async function loadStats() {
+      try {
+        const res = await fetch('/api/admin/stats');
+        if (!res.ok) return;
+        const s = await res.json();
+        const grid = document.getElementById('stats-grid');
+        grid.innerHTML = `
+          <div class="stat-card"><div class="stat-label">Total Users</div><div class="stat-value">${s.total_users}</div><div class="text-xs text-slate-500 mt-1">${s.admin_users} admins · ${s.paying_users} paid</div></div>
+          <div class="stat-card"><div class="stat-label">Total Cards</div><div class="stat-value">${s.total_cards}</div><div class="text-xs text-slate-500 mt-1">${s.complete_cards} analyzed</div></div>
+          <div class="stat-card"><div class="stat-label">Total Value</div><div class="stat-value text-green-400">$${s.total_value.toFixed(2)}</div></div>
+          <div class="stat-card"><div class="stat-label">Orphaned Cards</div><div class="stat-value text-yellow-400">${s.orphaned_cards}</div><div class="text-xs text-slate-500 mt-1">No owner</div></div>
+        `;
+      } catch {}
+    }
+
+    // ── Tab switching ───────────────────────────────────────────────────────
+    function switchTab(tab) {
+      ['users','cards','create'].forEach(t => {
+        document.getElementById('tab-' + t).classList.toggle('active', t === tab);
+        document.getElementById('panel-' + t).classList.toggle('hidden', t !== tab);
+      });
+      if (tab === 'cards' && allCards.length === 0) loadCardsTab();
+    }
+
+    // ── Users tab ───────────────────────────────────────────────────────────
+    async function loadUsers() {
+      try {
+        const res = await fetch('/api/admin/users');
+        const data = await res.json();
+        allUsers = data.users || [];
+        renderUsers();
+        // Populate owner filter on cards tab
+        const sel = document.getElementById('card-owner-filter');
+        sel.innerHTML = '<option value="">All owners</option>' +
+          allUsers.map(u => `<option value="${u.id}">${u.username}</option>`).join('') +
+          '<option value="__none__">(no owner)</option>';
+      } catch {
+        showToast('Failed to load users');
+      }
+    }
+
+    function renderUsers() {
+      const search = (document.getElementById('user-search').value || '').toLowerCase();
+      const tbody = document.getElementById('users-tbody');
+      const filtered = allUsers.filter(u =>
+        !search || u.username.toLowerCase().includes(search) || (u.email||'').toLowerCase().includes(search)
+      );
+      if (!filtered.length) {
+        tbody.innerHTML = '<tr><td colspan="6" class="text-center text-slate-500 py-8">No users found</td></tr>';
+        return;
+      }
+      tbody.innerHTML = filtered.map(u => {
+        const tierBadge = u.is_admin
+          ? '<span class="badge-tag b-admin">ADMIN</span>'
+          : (u.subscription_tier === 'pro'       ? '<span class="badge-tag b-pro">PRO</span>'
+            : u.subscription_tier === 'unlimited' ? '<span class="badge-tag b-unlim">UNLIMITED</span>'
+            : '<span class="badge-tag b-free">FREE</span>');
+        const joined = u.created_at ? new Date(u.created_at).toLocaleDateString() : '';
+        const isMe = u.id === me.id;
+        return `
+          <tr>
+            <td><div class="font-semibold">${u.username}${isMe ? ' <span class="text-xs text-slate-500">(you)</span>' : ''}</div></td>
+            <td class="text-slate-400">${u.email || '—'}</td>
+            <td>${tierBadge}</td>
+            <td>
+              <input type="number" min="0" value="${u.card_limit}" id="lim-${u.id}" class="input w-20" ${u.is_admin?'disabled':''}>
+              <span class="text-xs text-slate-500">/ ${u.cards_used} used</span>
+            </td>
+            <td class="text-slate-400 text-xs">${joined}</td>
+            <td>
+              <div class="flex gap-1 flex-wrap">
+                ${u.is_admin ? '' : `
+                  <select id="tier-${u.id}" class="input text-xs">
+                    <option value="free" ${u.subscription_tier==='free'?'selected':''}>Free</option>
+                    <option value="pro" ${u.subscription_tier==='pro'?'selected':''}>Pro</option>
+                    <option value="unlimited" ${u.subscription_tier==='unlimited'?'selected':''}>Unlimited</option>
+                  </select>
+                  <button onclick="saveUser('${u.id}')" class="btn btn-success text-xs">Save</button>
+                  <button onclick="toggleAdmin('${u.id}', true)" class="btn btn-ghost text-xs">Make Admin</button>
+                `}
+                <button onclick="openResetPw('${u.id}','${u.username}')" class="btn btn-ghost text-xs">Reset PW</button>
+                ${isMe ? '' : `<button onclick="deleteUser('${u.id}','${u.username}')" class="btn btn-danger text-xs">Delete</button>`}
+              </div>
+            </td>
+          </tr>`;
+      }).join('');
+    }
+
+    async function saveUser(id) {
+      const lim = parseInt(document.getElementById('lim-' + id).value, 10) || 0;
+      const tier = document.getElementById('tier-' + id).value;
+      const res = await fetch('/api/admin/users/' + id, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ card_limit: lim, subscription_tier: tier }),
+      });
+      if (res.ok) { showToast('User updated'); loadUsers(); }
+      else { const d = await res.json().catch(()=>({})); showToast(d.detail || 'Update failed'); }
+    }
+
+    async function toggleAdmin(id, makeAdmin) {
+      if (!confirm(makeAdmin ? 'Promote this user to admin?' : 'Remove admin from this user?')) return;
+      const res = await fetch('/api/admin/users/' + id, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ is_admin: makeAdmin }),
+      });
+      if (res.ok) { showToast(makeAdmin ? 'Promoted to admin' : 'Admin removed'); loadUsers(); loadStats(); }
+      else { showToast('Failed'); }
+    }
+
+    async function deleteUser(id, username) {
+      const choice = prompt(`Delete user "${username}".\n\nType "keep" to keep their cards (orphan them) or "wipe" to also delete all of their cards. Anything else cancels.`);
+      if (choice !== 'keep' && choice !== 'wipe') return;
+      const url = '/api/admin/users/' + id + (choice === 'wipe' ? '?delete_cards=true' : '');
+      const res = await fetch(url, { method: 'DELETE' });
+      if (res.ok) { showToast('User deleted'); loadUsers(); loadStats(); allCards = []; }
+      else { const d = await res.json().catch(()=>({})); showToast(d.detail || 'Delete failed'); }
+    }
+
+    function openResetPw(id, username) {
+      pwUserId = id;
+      document.getElementById('pw-username').textContent = username;
+      document.getElementById('pw-new').value = '';
+      document.getElementById('pw-modal').classList.remove('hidden');
+    }
+
+    async function submitResetPassword() {
+      const pw = document.getElementById('pw-new').value;
+      if (pw.length < 6) { showToast('Password must be 6+ chars'); return; }
+      const res = await fetch('/api/admin/users/' + pwUserId + '/reset-password', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ password: pw }),
+      });
+      if (res.ok) { showToast('Password reset'); document.getElementById('pw-modal').classList.add('hidden'); }
+      else { showToast('Failed'); }
+    }
+
+    // ── Create user form ────────────────────────────────────────────────────
+    document.getElementById('create-user-form').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const msg = document.getElementById('cu-msg');
+      msg.textContent = 'Creating…';
+      msg.className = 'text-xs text-slate-400';
+      try {
+        const res = await fetch('/api/admin/users', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            username: document.getElementById('cu-username').value,
+            email: document.getElementById('cu-email').value,
+            password: document.getElementById('cu-password').value,
+            card_limit: parseInt(document.getElementById('cu-limit').value, 10) || 5,
+            subscription_tier: document.getElementById('cu-tier').value,
+            is_admin: document.getElementById('cu-admin').checked,
+          }),
+        });
+        const data = await res.json();
+        if (!res.ok) {
+          msg.textContent = data.detail || 'Failed';
+          msg.className = 'text-xs text-red-400';
+          return;
+        }
+        msg.textContent = `User "${data.username}" created`;
+        msg.className = 'text-xs text-green-400';
+        document.getElementById('create-user-form').reset();
+        document.getElementById('cu-limit').value = 5;
+        loadUsers();
+        loadStats();
+      } catch {
+        msg.textContent = 'Connection error';
+        msg.className = 'text-xs text-red-400';
+      }
+    });
+
+    // ── Cards tab ───────────────────────────────────────────────────────────
+    async function loadCardsTab() {
+      const search = document.getElementById('card-search').value;
+      const owner = document.getElementById('card-owner-filter').value;
+      const params = new URLSearchParams({ limit: 200 });
+      if (search) params.set('search', search);
+      if (owner && owner !== '__none__') params.set('owner', owner);
+      const res = await fetch('/api/cards?' + params);
+      const data = await res.json();
+      let cards = data.cards || [];
+      if (owner === '__none__') cards = cards.filter(c => !c.owner_id);
+      allCards = cards;
+      renderCards();
+    }
+
+    function renderCards() {
+      const tbody = document.getElementById('cards-tbody');
+      if (!allCards.length) {
+        tbody.innerHTML = '<tr><td colspan="7" class="text-center text-slate-500 py-8">No cards found</td></tr>';
+        return;
+      }
+      tbody.innerHTML = allCards.map(c => {
+        const created = c.created_at ? new Date(c.created_at).toLocaleDateString() : '';
+        const price = c.estimated_price ? '$' + c.estimated_price.toFixed(2) : '—';
+        const thumb = c.front_image_url
+          ? `<img src="${c.front_image_url}" style="width:36px;height:48px;object-fit:cover;border-radius:4px">`
+          : '<div style="width:36px;height:48px;background:#0f172a;border-radius:4px"></div>';
+        const owner = c.owner_username || '<span class="text-yellow-400">(orphan)</span>';
+        return `
+          <tr>
+            <td>${thumb}</td>
+            <td>
+              <div class="font-semibold">${c.player_name || 'Unknown'}</div>
+              <div class="text-xs text-slate-500">${[c.year, c.brand, c.set_name].filter(Boolean).join(' · ')}</div>
+            </td>
+            <td>${owner}</td>
+            <td><span class="text-xs">${c.status}</span></td>
+            <td class="text-green-400 font-semibold">${price}</td>
+            <td class="text-xs text-slate-400">${created}</td>
+            <td>
+              <div class="flex gap-1 flex-wrap">
+                <button onclick="openReassign('${c.id}')" class="btn btn-ghost text-xs">Reassign</button>
+                <button onclick="repriceCard('${c.id}')" class="btn btn-ghost text-xs">Reprice</button>
+                <button onclick="deleteCard('${c.id}')" class="btn btn-danger text-xs">Delete</button>
+              </div>
+            </td>
+          </tr>`;
+      }).join('');
+    }
+
+    function openReassign(cardId) {
+      raCardId = cardId;
+      const sel = document.getElementById('ra-owner');
+      sel.innerHTML = '<option value="">(no owner)</option>' +
+        allUsers.map(u => `<option value="${u.id}">${u.username}</option>`).join('');
+      document.getElementById('reassign-modal').classList.remove('hidden');
+    }
+
+    async function submitReassign() {
+      const newOwner = document.getElementById('ra-owner').value;
+      const res = await fetch('/api/admin/cards/' + raCardId + '/reassign', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ owner_id: newOwner || null }),
+      });
+      if (res.ok) {
+        showToast('Card reassigned');
+        document.getElementById('reassign-modal').classList.add('hidden');
+        loadCardsTab();
+        loadStats();
+      } else { showToast('Failed'); }
+    }
+
+    async function repriceCard(id) {
+      const res = await fetch('/api/cards/' + id + '/reprice', { method: 'POST' });
+      if (res.ok) showToast('Repricing started');
+      else showToast('Failed');
+    }
+
+    async function deleteCard(id) {
+      if (!confirm('Delete this card and its images? This cannot be undone.')) return;
+      const res = await fetch('/api/cards/' + id, { method: 'DELETE' });
+      if (res.ok) { showToast('Card deleted'); loadCardsTab(); loadStats(); }
+      else { showToast('Failed'); }
+    }
+
+    // ── Toast ───────────────────────────────────────────────────────────────
+    function showToast(msg) {
+      const t = document.getElementById('toast');
+      t.textContent = msg;
+      t.style.opacity = '1';
+      setTimeout(() => { t.style.opacity = '0'; }, 2200);
+    }
+
+    init();
+  </script>
+</body>
+</html>

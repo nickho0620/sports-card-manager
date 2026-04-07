@@ -73,9 +73,26 @@ class Card(Base):
     graded_high = Column(Float)
     graded_num_sales = Column(Integer)
 
+    # ── Ownership ────────────────────────────────────────────────────────────
+    owner_id = Column(String)     # FK -> users.id (no constraint for migration ease)
+
     # ── Raw Data ─────────────────────────────────────────────────────────────
     raw_analysis = Column(Text)   # full JSON from Gemini
     notes = Column(Text)          # user-editable notes
+
+
+class User(Base):
+    __tablename__ = "users"
+
+    id = Column(String, primary_key=True)
+    username = Column(String, unique=True, nullable=False, index=True)
+    email = Column(String)
+    password_hash = Column(String, nullable=False)
+    is_admin = Column(Boolean, default=False)
+    card_limit = Column(Integer, default=5)             # max cards user can upload
+    subscription_tier = Column(String, default="free")  # "free" | "pro" | "unlimited"
+    subscription_expires_at = Column(DateTime)
+    created_at = Column(DateTime, default=datetime.utcnow)
 
 
 def init_db():
@@ -90,7 +107,6 @@ def _migrate(eng):
     if "cards" not in inspector.get_table_names():
         return
     existing = {col["name"] for col in inspector.get_columns("cards")}
-    # Map of column_name -> SQL type for columns that may need adding
     new_columns = {
         "insert_set": "VARCHAR",
         "product_code": "VARCHAR",
@@ -100,6 +116,7 @@ def _migrate(eng):
         "graded_low": "FLOAT",
         "graded_high": "FLOAT",
         "graded_num_sales": "INTEGER",
+        "owner_id": "VARCHAR",
     }
     with eng.begin() as conn:
         for col_name, col_type in new_columns.items():
