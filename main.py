@@ -34,7 +34,7 @@ import cloudinary.uploader
 from fastapi import BackgroundTasks, Cookie, FastAPI, File, HTTPException, Query, Request, UploadFile
 from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from PIL import Image
 from sqlalchemy import or_
@@ -184,12 +184,25 @@ app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 # ── Page Routes ──────────────────────────────────────────────────────────────
 
 @app.get("/", include_in_schema=False)
-def dashboard():
+def dashboard(request: Request):
+    # Gate the dashboard server-side: you must be signed in AND email-verified
+    # (admins bypass verification). Anything else bounces to /login so an
+    # unverified account can't peek at the app.
+    user = _current_user(request)
+    if not user:
+        return RedirectResponse(url="/login", status_code=302)
+    if not user.is_admin and not user.email_verified:
+        return RedirectResponse(url="/login?unverified=1", status_code=302)
     return FileResponse(os.path.join(STATIC_DIR, "index.html"))
 
 
 @app.get("/scanner", include_in_schema=False)
-def scanner():
+def scanner(request: Request):
+    user = _current_user(request)
+    if not user:
+        return RedirectResponse(url="/login", status_code=302)
+    if not user.is_admin and not user.email_verified:
+        return RedirectResponse(url="/login?unverified=1", status_code=302)
     return FileResponse(os.path.join(STATIC_DIR, "scanner.html"))
 
 
@@ -209,7 +222,12 @@ def admin_page():
 
 
 @app.get("/profile", include_in_schema=False)
-def profile_page():
+def profile_page(request: Request):
+    user = _current_user(request)
+    if not user:
+        return RedirectResponse(url="/login", status_code=302)
+    if not user.is_admin and not user.email_verified:
+        return RedirectResponse(url="/login?unverified=1", status_code=302)
     return FileResponse(os.path.join(STATIC_DIR, "profile.html"))
 
 

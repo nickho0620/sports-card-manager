@@ -31,10 +31,10 @@
 <body>
 
   <header class="page-header">
-    <a href="/" class="site-title">
+    <a href="/login" class="site-title">
       <img src="/static/logo.png" alt="Card Radar" style="height:42px; width:auto;">
     </a>
-    <a href="/" class="back-btn">← Back to Dashboard</a>
+    <a href="/register" class="back-btn">Create Account →</a>
   </header>
 
   <div class="login-wrap">
@@ -98,8 +98,13 @@
 
   <script>
     // Show success banner after email verification redirect
-    if (new URLSearchParams(window.location.search).get('verified') === '1') {
+    const _qs = new URLSearchParams(window.location.search);
+    if (_qs.get('verified') === '1') {
       document.getElementById('verify-banner').style.display = 'block';
+    }
+    // Bounced from the dashboard because the account isn't verified yet
+    if (_qs.get('unverified') === '1') {
+      document.getElementById('unverified-banner').style.display = 'block';
     }
 
     document.getElementById('login-form').addEventListener('submit', async (e) => {
