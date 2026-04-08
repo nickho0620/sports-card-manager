@@ -36,7 +36,7 @@
 
   <div class="login-wrap">
     <div class="login-box">
-      <div class="text-center mb-6">
+      <div id="register-hero" class="text-center mb-6">
         <img src="/static/logo.png" alt="Card Radar" style="width:240px; max-width:100%; height:auto; display:block; margin:0 auto;">
         <h1 class="text-xl font-bold mt-3">Create your account</h1>
         <p class="text-sm text-slate-400 mt-1">Free accounts can scan up to 5 cards</p>
@@ -70,11 +70,12 @@
         </div>
         <button type="submit" class="login-btn" id="register-btn">Create Account</button>
         <p class="error-msg" id="error-msg"></p>
-        <div id="verify-notice" style="display:none; background:rgba(34,197,94,.12); border:1px solid rgba(34,197,94,.4); border-radius:10px; padding:14px; margin-top:14px; color:#86efac; font-size:13px; line-height:1.5;"></div>
         <p class="text-center mt-4">
           <a href="/login" class="link">Already have an account? Sign in</a>
         </p>
       </form>
+      <!-- Verification panel (hidden until registration succeeds) -->
+      <div id="verify-notice" style="display:none;"></div>
     </div>
   </div>
 
@@ -103,34 +104,36 @@
         if (res.ok) {
           const data = await res.json();
           const sentTo = data.email || document.getElementById('email').value;
-          // Hide the form and show a prominent "check your email" panel.
+          // Swap the whole card over to the success state.
+          document.getElementById('register-hero').style.display = 'none';
           document.getElementById('register-form').style.display = 'none';
           const notice = document.getElementById('verify-notice');
           notice.innerHTML = `
-            <div style="font-size:64px; margin-bottom:14px; line-height:1;">📬</div>
-            <h2 style="font-size:24px; font-weight:800; color:#f1f5f9; margin:0 0 14px;">Check your email</h2>
-            <p style="color:#cbd5e1; font-size:15px; line-height:1.6; margin:0 0 12px;">
-              We just sent a verification link to:
-            </p>
-            <p style="color:#60a5fa; font-size:16px; font-weight:700; word-break:break-all; background:rgba(59,130,246,.1); border:1px solid rgba(59,130,246,.3); padding:10px 14px; border-radius:10px; margin:0 0 18px;">
-              ${sentTo}
-            </p>
-            <p style="color:#cbd5e1; font-size:14px; line-height:1.6; margin:0 0 18px;">
-              Click the link in that email to activate your account. You won't be able to sign in until your email is verified.
-            </p>
-            <p style="color:#94a3b8; font-size:12px; margin:0 0 22px;">
-              💡 Don't see it after a minute? Check your spam folder.
-            </p>
-            <div style="display:flex; flex-direction:column; gap:10px;">
-              <button type="button" id="resend-verify-btn" style="background:#334155; color:#fff; border:none; padding:11px 18px; border-radius:10px; font-weight:600; font-size:14px; cursor:pointer;">Resend verification email</button>
-              <p id="resend-verify-msg" style="margin:0; color:#94a3b8; font-size:12px; min-height:16px;"></p>
-              <a href="/login" style="display:inline-block; background:#3b82f6; color:#fff; padding:11px 18px; border-radius:10px; font-weight:700; font-size:14px; text-decoration:none;">Go to Sign In →</a>
+            <div style="text-align:center;">
+              <img src="/static/logo.png" alt="Card Radar" style="width:220px; max-width:100%; height:auto; display:block; margin:0 auto 18px;">
+              <div style="display:inline-flex; align-items:center; justify-content:center; width:72px; height:72px; border-radius:50%; background:rgba(34,197,94,.12); border:2px solid rgba(34,197,94,.35); margin:0 auto 18px;">
+                <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="#22c55e" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>
+              </div>
+              <h1 style="font-size:24px; font-weight:800; color:#f1f5f9; margin:0 0 10px;">Check your email to verify</h1>
+              <p style="color:#cbd5e1; font-size:15px; line-height:1.6; margin:0 0 18px;">
+                Your Card Radar account has been created. To finish setting it up, we sent a verification link to:
+              </p>
+              <p style="color:#f1f5f9; font-size:16px; font-weight:700; word-break:break-all; background:rgba(59,130,246,.08); border:1px solid rgba(59,130,246,.35); padding:12px 16px; border-radius:10px; margin:0 0 20px;">
+                ${sentTo}
+              </p>
+              <p style="color:#cbd5e1; font-size:14px; line-height:1.6; margin:0 0 10px;">
+                Click the link in that email to activate your account. You won't be able to sign in until your email is verified.
+              </p>
+              <p style="color:#94a3b8; font-size:12px; margin:0 0 24px;">
+                Didn't receive it within a minute? Check your spam or junk folder, or request a new link below.
+              </p>
+              <div style="display:flex; flex-direction:column; gap:10px;">
+                <a href="/login" style="display:inline-block; background:#3b82f6; color:#fff; padding:12px 20px; border-radius:10px; font-weight:700; font-size:14px; text-decoration:none;">Go to Sign In →</a>
+                <button type="button" id="resend-verify-btn" style="background:transparent; color:#cbd5e1; border:1px solid #334155; padding:11px 20px; border-radius:10px; font-weight:600; font-size:14px; cursor:pointer;">Resend verification email</button>
+                <p id="resend-verify-msg" style="margin:4px 0 0; color:#94a3b8; font-size:12px; min-height:16px;"></p>
+              </div>
             </div>
           `;
-          notice.style.background = 'transparent';
-          notice.style.border = 'none';
-          notice.style.padding = '0';
-          notice.style.textAlign = 'center';
           notice.style.display = 'block';
 
           // Wire up resend button
