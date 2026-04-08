@@ -16,11 +16,13 @@ import shutil
 import uuid
 from datetime import datetime
 
+from datetime import timedelta
+
 import aiofiles
 import cloudinary
 import cloudinary.uploader
 from fastapi import BackgroundTasks, Cookie, FastAPI, File, HTTPException, Query, Request, UploadFile
-from fastapi.responses import JSONResponse, StreamingResponse
+from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
@@ -28,8 +30,14 @@ from PIL import Image
 from sqlalchemy import or_
 
 from card_analyzer import analyze_card
-from database import Card, SessionLocal, User, init_db
+from database import Card, PasswordResetRequest, SessionLocal, User, init_db
 from ebay_pricing import get_ebay_pricing
+from email_service import (
+    get_base_url,
+    password_reset_email_html,
+    send_email,
+    verification_email_html,
+)
 from image_processor import process_card_scan
 
 # ── App Setup ────────────────────────────────────────────────────────────────
@@ -199,6 +207,10 @@ def user_to_dict(user: User, db=None) -> dict:
         "id": user.id,
         "username": user.username,
         "email": user.email,
+        "first_name": user.first_name,
+        "last_name": user.last_name,
+        "phone": user.phone,
+        "email_verified": bool(user.email_verified),
         "is_admin": user.is_admin,
         "card_limit": user.card_limit,
         "subscription_tier": user.subscription_tier,
@@ -213,6 +225,9 @@ def register(body: dict):
     username = (body.get("username") or "").strip()
     password = body.get("password") or ""
     email = (body.get("email") or "").strip() or None
+    first_name = (body.get("first_name") or "").strip() or None
+    last_name = (body.get("last_name") or "").strip() or None
+    phone = (body.get("phone") or "").strip() or None
 
     if len(username) < 3 or len(username) > 32:
         raise HTTPException(status_code=400, detail="Username must be 3-32 characters")
@@ -220,28 +235,124 @@ def register(body: dict):
         raise HTTPException(status_code=400, detail="Username may only contain letters, numbers, _ and -")
     if len(password) < 6:
         raise HTTPException(status_code=400, detail="Password must be at least 6 characters")
+    # Basic email sanity check if provided
+    if email and ("@" not in email or "." not in email.split("@")[-1]):
+        raise HTTPException(status_code=400, detail="Please enter a valid email address")
 
     db = SessionLocal()
     try:
         if db.query(User).filter(User.username == username).first():
             raise HTTPException(status_code=400, detail="Username already taken")
+        if email and db.query(User).filter(User.email == email).first():
+            raise HTTPException(status_code=400, detail="An account with that email already exists")
+
+        verify_token = secrets.token_urlsafe(32) if email else None
         user = User(
             id=str(uuid.uuid4()),
             username=username,
             email=email,
+            first_name=first_name,
+            last_name=last_name,
+            phone=phone,
             password_hash=_hash_password(password),
             is_admin=False,
             card_limit=5,
             subscription_tier="free",
+            email_verified=False,
+            email_verify_token=verify_token,
+            email_verify_sent_at=datetime.utcnow() if verify_token else None,
         )
         db.add(user)
         db.commit()
+
+        # Fire off verification email (best-effort, logs in dev)
+        if email and verify_token:
+            verify_url = f"{get_base_url()}/api/auth/verify-email?token={verify_token}"
+            html, text = verification_email_html(username, verify_url)
+            try:
+                send_email(email, "Verify your Sports Card Manager account", html, text)
+            except Exception as e:
+                print(f"[auth] verification email failed: {e}")
+
         token = _create_session(user.id)
-        resp = JSONResponse({"status": "ok", "user": user_to_dict(user, db)})
+        resp = JSONResponse({
+            "status": "ok",
+            "user": user_to_dict(user, db),
+            "verification_sent": bool(email),
+        })
         resp.set_cookie("session", token, httponly=True, samesite="lax", max_age=60 * 60 * 24 * 7)
         return resp
     finally:
         db.close()
+
+
+@app.get("/api/auth/verify-email", include_in_schema=False)
+def verify_email(token: str = Query(...)):
+    """User clicks the verification link from their email."""
+    db = SessionLocal()
+    try:
+        user = db.query(User).filter(User.email_verify_token == token).first()
+        if not user:
+            return HTMLResponse(_verify_page_html(
+                title="Verification Failed",
+                icon="❌",
+                color="#ef4444",
+                message="This verification link is invalid or has already been used.",
+            ), status_code=400)
+        user.email_verified = True
+        user.email_verify_token = None
+        db.commit()
+        return HTMLResponse(_verify_page_html(
+            title="Email Verified!",
+            icon="✅",
+            color="#22c55e",
+            message=f"Thanks, <strong>{user.username}</strong>! Your email is confirmed. You can close this tab and head back to Sports Card Manager.",
+        ))
+    finally:
+        db.close()
+
+
+@app.post("/api/auth/resend-verification")
+def resend_verification(request: Request):
+    user = require_auth(request)
+    if not user.email:
+        raise HTTPException(status_code=400, detail="No email on file. Add one in your profile first.")
+    if user.email_verified:
+        return {"status": "already_verified"}
+    db = SessionLocal()
+    try:
+        u = db.get(User, user.id)
+        u.email_verify_token = secrets.token_urlsafe(32)
+        u.email_verify_sent_at = datetime.utcnow()
+        db.commit()
+        verify_url = f"{get_base_url()}/api/auth/verify-email?token={u.email_verify_token}"
+        html, text = verification_email_html(u.username, verify_url)
+        send_email(u.email, "Verify your Sports Card Manager account", html, text)
+        return {"status": "sent"}
+    finally:
+        db.close()
+
+
+def _verify_page_html(title: str, icon: str, color: str, message: str) -> str:
+    return f"""<!DOCTYPE html>
+<html><head><meta charset="utf-8"><title>{title}</title>
+<style>
+  body {{ font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif; background:#0f172a; color:#f1f5f9; margin:0; min-height:100vh; display:flex; align-items:center; justify-content:center; padding:24px; }}
+  .card {{ background:#1e293b; border:1px solid #334155; border-radius:20px; padding:48px 40px; max-width:440px; text-align:center; }}
+  .icon {{ font-size:64px; margin-bottom:16px; }}
+  h1 {{ margin:0 0 16px; font-size:26px; color:{color}; }}
+  p {{ color:#cbd5e1; line-height:1.6; margin:0 0 28px; }}
+  a.btn {{ display:inline-block; background:#3b82f6; color:#fff; text-decoration:none; padding:12px 28px; border-radius:12px; font-weight:700; }}
+  a.btn:hover {{ background:#2563eb; }}
+</style></head>
+<body>
+  <div class="card">
+    <div class="icon">{icon}</div>
+    <h1>{title}</h1>
+    <p>{message}</p>
+    <a href="/" class="btn">← Back to Dashboard</a>
+  </div>
+</body></html>"""
 
 
 @app.post("/api/auth/login")
@@ -283,6 +394,127 @@ def auth_check(request: Request):
         db.close()
 
 
+@app.post("/api/auth/forgot-password")
+def forgot_password(body: dict):
+    """Email-based password reset.
+
+    Accepts {username?, email?}. If the account has an email on file we send
+    a time-limited reset link. We also log a PasswordResetRequest so the
+    admin has a record (and a manual fallback if SMTP is not configured or
+    the user has no email on file).
+    """
+    username = (body.get("username") or "").strip() or None
+    email = (body.get("email") or "").strip() or None
+    if not username and not email:
+        raise HTTPException(status_code=400, detail="Please provide a username or email")
+
+    db = SessionLocal()
+    try:
+        user = None
+        if username:
+            user = db.query(User).filter(User.username == username).first()
+        if not user and email:
+            user = db.query(User).filter(User.email == email).first()
+
+        email_sent = False
+        if user and user.email:
+            user.password_reset_token = secrets.token_urlsafe(32)
+            user.password_reset_expires = datetime.utcnow() + timedelta(hours=1)
+            db.commit()
+            reset_url = f"{get_base_url()}/reset-password?token={user.password_reset_token}"
+            html, text = password_reset_email_html(user.username, reset_url)
+            email_sent = send_email(user.email, "Reset your Sports Card Manager password", html, text)
+
+        # Always also log to the admin queue so a human can handle edge cases
+        req = PasswordResetRequest(
+            id=str(uuid.uuid4()),
+            username=username or (user.username if user else ""),
+            email=email or (user.email if user else None),
+            status="pending",
+        )
+        db.add(req)
+        db.commit()
+
+        # Don't reveal whether the account exists
+        return {"status": "ok", "email_sent": email_sent}
+    finally:
+        db.close()
+
+
+@app.post("/api/auth/reset-password")
+def reset_password(body: dict):
+    """Complete a password reset using a token from the reset email."""
+    token = (body.get("token") or "").strip()
+    new_password = body.get("password") or ""
+    if not token:
+        raise HTTPException(status_code=400, detail="Reset token is required")
+    if len(new_password) < 6:
+        raise HTTPException(status_code=400, detail="Password must be at least 6 characters")
+
+    db = SessionLocal()
+    try:
+        user = db.query(User).filter(User.password_reset_token == token).first()
+        if not user:
+            raise HTTPException(status_code=400, detail="This reset link is invalid or has already been used")
+        if not user.password_reset_expires or user.password_reset_expires < datetime.utcnow():
+            raise HTTPException(status_code=400, detail="This reset link has expired. Request a new one.")
+
+        user.password_hash = _hash_password(new_password)
+        user.password_reset_token = None
+        user.password_reset_expires = None
+        db.commit()
+
+        # Invalidate all active sessions for this user
+        for tok in [t for t, uid in _active_sessions.items() if uid == user.id]:
+            _active_sessions.pop(tok, None)
+
+        return {"status": "ok"}
+    finally:
+        db.close()
+
+
+@app.get("/reset-password", include_in_schema=False)
+def reset_password_page():
+    return FileResponse(os.path.join(STATIC_DIR, "reset-password.html"))
+
+
+@app.get("/api/admin/password-resets")
+def admin_list_resets(request: Request):
+    require_admin(request)
+    db = SessionLocal()
+    try:
+        reqs = db.query(PasswordResetRequest).order_by(PasswordResetRequest.created_at.desc()).all()
+        return {
+            "requests": [
+                {
+                    "id": r.id,
+                    "username": r.username,
+                    "email": r.email,
+                    "status": r.status,
+                    "created_at": (r.created_at.isoformat() + "Z") if r.created_at else None,
+                }
+                for r in reqs
+            ]
+        }
+    finally:
+        db.close()
+
+
+@app.post("/api/admin/password-resets/{req_id}/resolve")
+def admin_resolve_reset(request: Request, req_id: str):
+    require_admin(request)
+    db = SessionLocal()
+    try:
+        r = db.get(PasswordResetRequest, req_id)
+        if not r:
+            raise HTTPException(status_code=404, detail="Request not found")
+        r.status = "resolved"
+        db.commit()
+        return {"status": "ok"}
+    finally:
+        db.close()
+
+
 @app.get("/api/auth/me")
 def auth_me(request: Request):
     user = require_auth(request)
@@ -312,6 +544,9 @@ def admin_create_user(request: Request, body: dict):
     username = (body.get("username") or "").strip()
     password = body.get("password") or ""
     email = (body.get("email") or "").strip() or None
+    first_name = (body.get("first_name") or "").strip() or None
+    last_name = (body.get("last_name") or "").strip() or None
+    phone = (body.get("phone") or "").strip() or None
     is_admin_flag = bool(body.get("is_admin", False))
     card_limit = body.get("card_limit", 5)
     tier = body.get("subscription_tier", "free")
@@ -331,14 +566,64 @@ def admin_create_user(request: Request, body: dict):
             id=str(uuid.uuid4()),
             username=username,
             email=email,
+            first_name=first_name,
+            last_name=last_name,
+            phone=phone,
             password_hash=_hash_password(password),
             is_admin=is_admin_flag,
             card_limit=int(card_limit) if not is_admin_flag else 999999,
             subscription_tier="unlimited" if is_admin_flag else tier,
+            email_verified=True,  # admin-created accounts are trusted
         )
         db.add(user)
         db.commit()
         return user_to_dict(user, db)
+    finally:
+        db.close()
+
+
+@app.get("/api/admin/users/export/csv")
+def admin_export_users_csv(request: Request):
+    """Admin: export all users as CSV.
+
+    Sensitive fields (password hash, reset tokens, session tokens, any stored
+    payment/credit-card data) are explicitly excluded. We do NOT store
+    credit-card information anywhere in this system; if that ever changes,
+    this endpoint must continue to omit it.
+    """
+    require_admin(request)
+    db = SessionLocal()
+    try:
+        users = db.query(User).order_by(User.created_at.desc()).all()
+        output = io.StringIO()
+        writer = csv.writer(output)
+        writer.writerow([
+            "ID", "Username", "First Name", "Last Name", "Email", "Phone",
+            "Email Verified", "Role", "Tier", "Card Limit", "Cards Used",
+            "Subscription Expires", "Created At",
+        ])
+        for u in users:
+            writer.writerow([
+                u.id,
+                u.username,
+                u.first_name or "",
+                u.last_name or "",
+                u.email or "",
+                u.phone or "",
+                "Yes" if u.email_verified else "No",
+                "admin" if u.is_admin else "user",
+                u.subscription_tier or "free",
+                u.card_limit or 0,
+                _user_card_count(db, u.id),
+                u.subscription_expires_at.isoformat() if u.subscription_expires_at else "",
+                u.created_at.isoformat() if u.created_at else "",
+            ])
+        output.seek(0)
+        return StreamingResponse(
+            iter([output.getvalue()]),
+            media_type="text/csv",
+            headers={"Content-Disposition": "attachment; filename=users_export.csv"},
+        )
     finally:
         db.close()
 
@@ -368,6 +653,12 @@ def admin_update_user(request: Request, user_id: str, body: dict):
                 user.card_limit = 999999
         if "is_admin" in body:
             user.is_admin = bool(body["is_admin"])
+        for field in ("first_name", "last_name", "email", "phone"):
+            if field in body:
+                val = (body[field] or "").strip() or None
+                setattr(user, field, val)
+        if "email_verified" in body:
+            user.email_verified = bool(body["email_verified"])
         db.commit()
         return user_to_dict(user, db)
     finally:
@@ -745,6 +1036,30 @@ def list_cards(
         db.close()
 
 
+@app.get("/api/cards/stats")
+def cards_stats(request: Request):
+    """Return stats for the logged-in user (their cards only), or global if not logged in."""
+    user = _current_user(request)
+    db = SessionLocal()
+    try:
+        q = db.query(Card)
+        scope = "global"
+        if user:
+            q = q.filter(Card.owner_id == user.id)
+            scope = "user"
+        all_cards = q.all()
+        complete = [c for c in all_cards if c.status == "complete"]
+        total_value = sum((c.estimated_price or 0) for c in complete)
+        return {
+            "scope": scope,
+            "total_cards": len(all_cards),
+            "complete": len(complete),
+            "total_value": round(total_value, 2),
+        }
+    finally:
+        db.close()
+
+
 @app.get("/api/cards/{card_id}")
 def get_card(card_id: str):
     db = SessionLocal()
@@ -966,11 +1281,33 @@ def delete_card(request: Request, card_id: str):
 
 
 @app.get("/api/export/csv")
-def export_csv():
-    """Download all cards as a CSV spreadsheet."""
+def export_csv(request: Request):
+    """Download the logged-in user's cards as a CSV spreadsheet.
+
+    Access rules:
+      • Must be logged in.
+      • Free tier is blocked (upgrade required).
+      • Pro / Unlimited / Admin can export — scoped to their own cards
+        (admins still get only their own; to export everything they can
+        use the admin console).
+    """
+    user = _current_user(request)
+    if not user:
+        raise HTTPException(status_code=401, detail="Login required to export CSV")
+    tier = (user.subscription_tier or "free").lower()
+    if not user.is_admin and tier not in ("pro", "unlimited"):
+        raise HTTPException(
+            status_code=403,
+            detail="CSV export is a Pro feature. Please upgrade your plan.",
+        )
     db = SessionLocal()
     try:
-        cards = db.query(Card).order_by(Card.created_at.desc()).all()
+        cards = (
+            db.query(Card)
+            .filter(Card.owner_id == user.id)
+            .order_by(Card.created_at.desc())
+            .all()
+        )
         output = io.StringIO()
         writer = csv.writer(output)
 

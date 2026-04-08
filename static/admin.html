@@ -69,7 +69,10 @@
     <div id="panel-users" class="panel">
       <div class="flex items-center justify-between mb-4 flex-wrap gap-3">
         <h2 class="font-bold text-lg">All Users</h2>
-        <input id="user-search" type="text" placeholder="Search by username…" class="input w-64" oninput="renderUsers()">
+        <div class="flex items-center gap-2 flex-wrap">
+          <input id="user-search" type="text" placeholder="Search by username…" class="input w-64" oninput="renderUsers()">
+          <a href="/api/admin/users/export/csv" class="btn btn-primary" style="text-decoration:none;">📊 Export Users CSV</a>
+        </div>
       </div>
       <div class="overflow-x-auto">
         <table id="users-table">
@@ -122,12 +125,24 @@
       <h2 class="font-bold text-lg mb-4">Create New User</h2>
       <form id="create-user-form" class="grid grid-cols-1 md:grid-cols-2 gap-4 max-w-2xl">
         <div>
+          <label class="block text-xs text-slate-400 mb-1.5 font-medium">First Name</label>
+          <input id="cu-first-name" class="input w-full">
+        </div>
+        <div>
+          <label class="block text-xs text-slate-400 mb-1.5 font-medium">Last Name</label>
+          <input id="cu-last-name" class="input w-full">
+        </div>
+        <div>
           <label class="block text-xs text-slate-400 mb-1.5 font-medium">Username *</label>
           <input id="cu-username" class="input w-full" required minlength="3">
         </div>
         <div>
           <label class="block text-xs text-slate-400 mb-1.5 font-medium">Email</label>
           <input id="cu-email" type="email" class="input w-full">
+        </div>
+        <div>
+          <label class="block text-xs text-slate-400 mb-1.5 font-medium">Phone</label>
+          <input id="cu-phone" type="tel" class="input w-full">
         </div>
         <div>
           <label class="block text-xs text-slate-400 mb-1.5 font-medium">Password *</label>
@@ -261,9 +276,11 @@
     function renderUsers() {
       const search = (document.getElementById('user-search').value || '').toLowerCase();
       const tbody = document.getElementById('users-tbody');
-      const filtered = allUsers.filter(u =>
-        !search || u.username.toLowerCase().includes(search) || (u.email||'').toLowerCase().includes(search)
-      );
+      const filtered = allUsers.filter(u => {
+        if (!search) return true;
+        const hay = [u.username, u.email, u.first_name, u.last_name, u.phone].filter(Boolean).join(' ').toLowerCase();
+        return hay.includes(search);
+      });
       if (!filtered.length) {
         tbody.innerHTML = '<tr><td colspan="6" class="text-center text-slate-500 py-8">No users found</td></tr>';
         return;
@@ -276,10 +293,20 @@
             : '<span class="badge-tag b-free">FREE</span>');
         const joined = u.created_at ? new Date(u.created_at).toLocaleDateString() : '';
         const isMe = u.id === me.id;
+        const fullName = [u.first_name, u.last_name].filter(Boolean).join(' ');
+        const verifyBadge = u.email
+          ? (u.email_verified
+              ? ' <span class="text-xs text-green-400" title="Email verified">✓</span>'
+              : ' <span class="text-xs text-amber-400" title="Email not verified">!</span>')
+          : '';
         return `
           <tr>
-            <td><div class="font-semibold">${u.username}${isMe ? ' <span class="text-xs text-slate-500">(you)</span>' : ''}</div></td>
-            <td class="text-slate-400">${u.email || '—'}</td>
+            <td>
+              <div class="font-semibold">${u.username}${isMe ? ' <span class="text-xs text-slate-500">(you)</span>' : ''}</div>
+              ${fullName ? `<div class="text-xs text-slate-500">${fullName}</div>` : ''}
+              ${u.phone ? `<div class="text-xs text-slate-500">${u.phone}</div>` : ''}
+            </td>
+            <td class="text-slate-400">${u.email || '—'}${verifyBadge}</td>
             <td>${tierBadge}</td>
             <td>
               <input type="number" min="0" value="${u.card_limit}" id="lim-${u.id}" class="input w-20" ${u.is_admin?'disabled':''}>
@@ -367,8 +394,11 @@
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
+            first_name: document.getElementById('cu-first-name').value,
+            last_name: document.getElementById('cu-last-name').value,
             username: document.getElementById('cu-username').value,
             email: document.getElementById('cu-email').value,
+            phone: document.getElementById('cu-phone').value,
             password: document.getElementById('cu-password').value,
             card_limit: parseInt(document.getElementById('cu-limit').value, 10) || 5,
             subscription_tier: document.getElementById('cu-tier').value,

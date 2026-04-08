@@ -94,6 +94,30 @@ class User(Base):
     subscription_expires_at = Column(DateTime)
     created_at = Column(DateTime, default=datetime.utcnow)
 
+    # ── Profile ─────────────────────────────────────────────────────────────
+    first_name = Column(String)
+    last_name = Column(String)
+    phone = Column(String)
+
+    # ── Email verification ──────────────────────────────────────────────────
+    email_verified = Column(Boolean, default=False)
+    email_verify_token = Column(String)
+    email_verify_sent_at = Column(DateTime)
+
+    # ── Password reset (email-based) ────────────────────────────────────────
+    password_reset_token = Column(String)
+    password_reset_expires = Column(DateTime)
+
+
+class PasswordResetRequest(Base):
+    __tablename__ = "password_reset_requests"
+
+    id = Column(String, primary_key=True)
+    username = Column(String, nullable=False)
+    email = Column(String)
+    status = Column(String, default="pending")   # "pending" | "resolved"
+    created_at = Column(DateTime, default=datetime.utcnow)
+
 
 def init_db():
     Base.metadata.create_all(bind=engine)
@@ -101,25 +125,45 @@ def init_db():
 
 
 def _migrate(eng):
-    """Add any columns that are missing from the existing table."""
+    """Add any columns that are missing from the existing tables."""
     from sqlalchemy import inspect, text
     inspector = inspect(eng)
-    if "cards" not in inspector.get_table_names():
-        return
-    existing = {col["name"] for col in inspector.get_columns("cards")}
-    new_columns = {
-        "insert_set": "VARCHAR",
-        "product_code": "VARCHAR",
-        "ebay_search_url": "VARCHAR",
-        "pricing_source": "VARCHAR",
-        "graded_avg": "FLOAT",
-        "graded_low": "FLOAT",
-        "graded_high": "FLOAT",
-        "graded_num_sales": "INTEGER",
-        "owner_id": "VARCHAR",
-    }
+    tables = inspector.get_table_names()
+
     with eng.begin() as conn:
-        for col_name, col_type in new_columns.items():
-            if col_name not in existing:
-                conn.execute(text(f"ALTER TABLE cards ADD COLUMN {col_name} {col_type}"))
-                print(f"[migrate] Added column: {col_name}")
+        # ── cards table ─────────────────────────────────────────────────────
+        if "cards" in tables:
+            existing = {col["name"] for col in inspector.get_columns("cards")}
+            card_cols = {
+                "insert_set": "VARCHAR",
+                "product_code": "VARCHAR",
+                "ebay_search_url": "VARCHAR",
+                "pricing_source": "VARCHAR",
+                "graded_avg": "FLOAT",
+                "graded_low": "FLOAT",
+                "graded_high": "FLOAT",
+                "graded_num_sales": "INTEGER",
+                "owner_id": "VARCHAR",
+            }
+            for col_name, col_type in card_cols.items():
+                if col_name not in existing:
+                    conn.execute(text(f"ALTER TABLE cards ADD COLUMN {col_name} {col_type}"))
+                    print(f"[migrate] cards: added column {col_name}")
+
+        # ── users table ─────────────────────────────────────────────────────
+        if "users" in tables:
+            existing = {col["name"] for col in inspector.get_columns("users")}
+            user_cols = {
+                "first_name": "VARCHAR",
+                "last_name": "VARCHAR",
+                "phone": "VARCHAR",
+                "email_verified": "BOOLEAN",
+                "email_verify_token": "VARCHAR",
+                "email_verify_sent_at": "TIMESTAMP",
+                "password_reset_token": "VARCHAR",
+                "password_reset_expires": "TIMESTAMP",
+            }
+            for col_name, col_type in user_cols.items():
+                if col_name not in existing:
+                    conn.execute(text(f"ALTER TABLE users ADD COLUMN {col_name} {col_type}"))
+                    print(f"[migrate] users: added column {col_name}")

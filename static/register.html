@@ -6,44 +6,77 @@
   <title>Create Account — Sports Card Manager</title>
   <link rel="stylesheet" href="/static/styles.css">
   <style>
-    body { background: #0f172a; color: #f1f5f9; display: flex; align-items: center; justify-content: center; min-height: 100vh; }
-    .login-box { background: #1e293b; border-radius: 16px; padding: 40px; width: 100%; max-width: 380px; }
-    .login-input { width: 100%; background: #0f172a; border: 1px solid #334155; border-radius: 12px; padding: 12px 16px; color: #f1f5f9; font-size: 15px; outline: none; transition: border-color .2s; }
-    .login-input:focus { border-color: #3b82f6; }
-    .login-btn { width: 100%; padding: 12px; border-radius: 12px; background: #3b82f6; color: white; font-weight: 600; font-size: 15px; cursor: pointer; border: none; transition: background .15s; }
-    .login-btn:hover { background: #2563eb; }
-    .login-btn:disabled { background: #334155; cursor: not-allowed; }
-    .error-msg { color: #f87171; font-size: 13px; text-align: center; margin-top: 12px; min-height: 20px; }
-    .link { color: #60a5fa; text-decoration: none; font-size: 13px; }
-    .link:hover { text-decoration: underline; }
+    body { background: #0f172a; color: #f1f5f9; min-height: 100vh; margin: 0; }
+    .page-header { display:flex; align-items:center; justify-content:space-between; padding:16px 24px; border-bottom:1px solid #1e293b; background:rgba(15,23,42,.95); backdrop-filter: blur(8px); }
+    .site-title { display:flex; align-items:center; gap:10px; text-decoration:none; color:#f1f5f9; }
+    .site-title:hover { color:#60a5fa; }
+    .site-title h1 { font-size:16px; font-weight:700; margin:0; }
+    .back-btn { display:inline-flex; align-items:center; gap:6px; background:#1e293b; border:1px solid #334155; color:#cbd5e1; padding:8px 14px; border-radius:10px; font-size:13px; font-weight:500; text-decoration:none; transition:all .15s; }
+    .back-btn:hover { background:#334155; color:#fff; border-color:#475569; }
+    .login-wrap { display:flex; align-items:center; justify-content:center; min-height: calc(100vh - 70px); padding:24px; }
+    .login-box { background:#1e293b; border-radius:16px; padding:40px; width:100%; max-width:380px; }
+    .login-input { width:100%; background:#0f172a; border:1px solid #334155; border-radius:12px; padding:12px 16px; color:#f1f5f9; font-size:15px; outline:none; transition:border-color .2s; box-sizing:border-box; }
+    .login-input:focus { border-color:#3b82f6; }
+    .login-btn { width:100%; padding:12px; border-radius:12px; background:#3b82f6; color:white; font-weight:600; font-size:15px; cursor:pointer; border:none; transition:background .15s; }
+    .login-btn:hover { background:#2563eb; }
+    .login-btn:disabled { background:#334155; cursor:not-allowed; }
+    .error-msg { color:#f87171; font-size:13px; text-align:center; margin-top:12px; min-height:20px; }
+    .link { color:#60a5fa; text-decoration:none; font-size:13px; }
+    .link:hover { text-decoration:underline; }
   </style>
 </head>
 <body>
-  <div class="login-box">
-    <div class="text-center mb-6">
-      <span class="text-4xl">⚾</span>
-      <h1 class="text-xl font-bold mt-3">Create your account</h1>
-      <p class="text-sm text-slate-400 mt-1">Free accounts can scan up to 5 cards</p>
+
+  <header class="page-header">
+    <a href="/" class="site-title">
+      <span style="font-size:22px">⚾</span>
+      <h1>Sports Card Manager</h1>
+    </a>
+    <a href="/" class="back-btn">← Back to Dashboard</a>
+  </header>
+
+  <div class="login-wrap">
+    <div class="login-box">
+      <div class="text-center mb-6">
+        <span class="text-4xl">⚾</span>
+        <h1 class="text-xl font-bold mt-3">Create your account</h1>
+        <p class="text-sm text-slate-400 mt-1">Free accounts can scan up to 5 cards</p>
+      </div>
+      <form id="register-form">
+        <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-bottom:16px;">
+          <div>
+            <label class="block text-xs text-slate-400 mb-1.5 font-medium">First Name <span class="text-slate-500">(optional)</span></label>
+            <input type="text" id="first_name" class="login-input" placeholder="First" autocomplete="given-name">
+          </div>
+          <div>
+            <label class="block text-xs text-slate-400 mb-1.5 font-medium">Last Name <span class="text-slate-500">(optional)</span></label>
+            <input type="text" id="last_name" class="login-input" placeholder="Last" autocomplete="family-name">
+          </div>
+        </div>
+        <div class="mb-4">
+          <label class="block text-xs text-slate-400 mb-1.5 font-medium">Username</label>
+          <input type="text" id="username" class="login-input" placeholder="3-32 characters" autocomplete="username" required>
+        </div>
+        <div class="mb-4">
+          <label class="block text-xs text-slate-400 mb-1.5 font-medium">Email <span class="text-slate-500">(optional, but required for verification + password reset)</span></label>
+          <input type="email" id="email" class="login-input" placeholder="you@example.com" autocomplete="email">
+        </div>
+        <div class="mb-4">
+          <label class="block text-xs text-slate-400 mb-1.5 font-medium">Phone <span class="text-slate-500">(optional)</span></label>
+          <input type="tel" id="phone" class="login-input" placeholder="(555) 555-5555" autocomplete="tel">
+        </div>
+        <div class="mb-6">
+          <label class="block text-xs text-slate-400 mb-1.5 font-medium">Password</label>
+          <input type="password" id="password" class="login-input" placeholder="At least 6 characters" autocomplete="new-password" required>
+        </div>
+        <button type="submit" class="login-btn" id="register-btn">Create Account</button>
+        <p class="error-msg" id="error-msg"></p>
+        <div id="verify-notice" style="display:none; background:rgba(34,197,94,.12); border:1px solid rgba(34,197,94,.4); border-radius:10px; padding:14px; margin-top:14px; color:#86efac; font-size:13px; line-height:1.5;"></div>
+        <p class="text-center mt-4">
+          <a href="/login" class="link">Already have an account? Sign in</a>
+        </p>
+      </form>
     </div>
-    <form id="register-form">
-      <div class="mb-4">
-        <label class="block text-xs text-slate-400 mb-1.5 font-medium">Username</label>
-        <input type="text" id="username" class="login-input" placeholder="3-32 characters" autocomplete="username" required>
-      </div>
-      <div class="mb-4">
-        <label class="block text-xs text-slate-400 mb-1.5 font-medium">Email <span class="text-slate-500">(optional)</span></label>
-        <input type="email" id="email" class="login-input" placeholder="you@example.com" autocomplete="email">
-      </div>
-      <div class="mb-6">
-        <label class="block text-xs text-slate-400 mb-1.5 font-medium">Password</label>
-        <input type="password" id="password" class="login-input" placeholder="At least 6 characters" autocomplete="new-password" required>
-      </div>
-      <button type="submit" class="login-btn" id="register-btn">Create Account</button>
-      <p class="error-msg" id="error-msg"></p>
-      <p class="text-center mt-4">
-        <a href="/login" class="link">Already have an account? Sign in</a>
-      </p>
-    </form>
   </div>
 
   <script>
@@ -60,22 +93,36 @@
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
+            first_name: document.getElementById('first_name').value,
+            last_name: document.getElementById('last_name').value,
             username: document.getElementById('username').value,
             email: document.getElementById('email').value,
+            phone: document.getElementById('phone').value,
             password: document.getElementById('password').value,
           }),
         });
         if (res.ok) {
-          window.location.href = '/';
+          const data = await res.json();
+          if (data.verification_sent) {
+            // Show a brief "check your email" notice, then go home.
+            const notice = document.getElementById('verify-notice');
+            notice.innerHTML = '✅ <strong>Account created!</strong> We sent a verification link to your email — click it to confirm you\'re human. Redirecting to the dashboard…';
+            notice.style.display = 'block';
+            setTimeout(() => { window.location.href = '/'; }, 2500);
+          } else {
+            window.location.href = '/';
+          }
         } else {
           const data = await res.json();
           err.textContent = data.detail || 'Registration failed';
+          btn.disabled = false;
+          btn.textContent = 'Create Account';
         }
       } catch (ex) {
         err.textContent = 'Connection error. Try again.';
+        btn.disabled = false;
+        btn.textContent = 'Create Account';
       }
-      btn.disabled = false;
-      btn.textContent = 'Create Account';
     });
   </script>
 </body>
