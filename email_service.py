@@ -7,7 +7,7 @@ Configuration via environment variables:
     SMTP_USER        (SMTP username)
     SMTP_PASS        (SMTP password or app password)
     SMTP_FROM        (From address, defaults to SMTP_USER)
-    SMTP_FROM_NAME   (default "Sports Card Manager")
+    SMTP_FROM_NAME   (default "Card Radar")
     APP_BASE_URL     (e.g. https://sports-cards.onrender.com)
 
 If SMTP is not configured, the "email" is printed to the console so local
@@ -50,7 +50,7 @@ def send_email(to: str, subject: str, html_body: str, text_body: str | None = No
     user = os.getenv("SMTP_USER")
     password = os.getenv("SMTP_PASS")
     from_addr = os.getenv("SMTP_FROM", user)
-    from_name = os.getenv("SMTP_FROM_NAME", "Sports Card Manager")
+    from_name = os.getenv("SMTP_FROM_NAME", "Card Radar")
 
     msg = EmailMessage()
     msg["Subject"] = subject
@@ -101,21 +101,21 @@ def verification_email_html(username: str, verify_url: str) -> tuple[str, str]:
 <body>
   <div class="wrap">
     <div class="header">
-      <h1>⚾ Verify your email</h1>
+      <h1>📡 Verify your email</h1>
     </div>
     <div class="content">
       <p>Hi <strong>{username}</strong>,</p>
-      <p>Thanks for signing up for Sports Card Manager! Please confirm your email address by clicking the button below:</p>
+      <p>Thanks for signing up for Card Radar! Please confirm your email address by clicking the button below:</p>
       <p style="text-align:center;"><a href="{verify_url}" class="btn">Verify My Email</a></p>
       <p class="muted">Or paste this link into your browser:<br><code>{verify_url}</code></p>
       <p class="muted">If you didn't create this account, you can safely ignore this email.</p>
     </div>
-    <div class="footer">Sports Card Manager · Your collection, organized.</div>
+    <div class="footer">Card Radar · Your collection, organized.</div>
   </div>
 </body></html>"""
     text = (
         f"Hi {username},\n\n"
-        f"Please verify your email for Sports Card Manager by visiting:\n{verify_url}\n\n"
+        f"Please verify your email for Card Radar by visiting:\n{verify_url}\n\n"
         f"If you didn't create this account, you can ignore this email."
     )
     return html, text
@@ -131,17 +131,17 @@ def password_reset_email_html(username: str, reset_url: str) -> tuple[str, str]:
     </div>
     <div class="content">
       <p>Hi <strong>{username}</strong>,</p>
-      <p>We received a request to reset your Sports Card Manager password. Click the button below to choose a new one. This link expires in <strong>1 hour</strong>.</p>
+      <p>We received a request to reset your Card Radar password. Click the button below to choose a new one. This link expires in <strong>1 hour</strong>.</p>
       <p style="text-align:center;"><a href="{reset_url}" class="btn">Reset Password</a></p>
       <p class="muted">Or paste this link into your browser:<br><code>{reset_url}</code></p>
       <p class="muted">If you didn't request a password reset, you can safely ignore this email — your password won't be changed.</p>
     </div>
-    <div class="footer">Sports Card Manager · Your collection, organized.</div>
+    <div class="footer">Card Radar · Your collection, organized.</div>
   </div>
 </body></html>"""
     text = (
         f"Hi {username},\n\n"
-        f"Reset your Sports Card Manager password here (expires in 1 hour):\n{reset_url}\n\n"
+        f"Reset your Card Radar password here (expires in 1 hour):\n{reset_url}\n\n"
         f"If you didn't request this, you can ignore this email."
     )
     return html, text

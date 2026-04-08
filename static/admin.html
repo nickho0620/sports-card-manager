@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Admin Console — Sports Card Manager</title>
+  <title>Admin Console — Card Radar</title>
   <link rel="stylesheet" href="/static/styles.css">
   <style>
     body { background:#0f172a; color:#f1f5f9; min-height:100vh; }
@@ -79,6 +79,7 @@
           <thead>
             <tr>
               <th>User</th>
+              <th>Name</th>
               <th>Email</th>
               <th>Role / Tier</th>
               <th>Cards</th>
@@ -282,7 +283,7 @@
         return hay.includes(search);
       });
       if (!filtered.length) {
-        tbody.innerHTML = '<tr><td colspan="6" class="text-center text-slate-500 py-8">No users found</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="7" class="text-center text-slate-500 py-8">No users found</td></tr>';
         return;
       }
       tbody.innerHTML = filtered.map(u => {
@@ -294,18 +295,17 @@
         const joined = u.created_at ? new Date(u.created_at).toLocaleDateString() : '';
         const isMe = u.id === me.id;
         const fullName = [u.first_name, u.last_name].filter(Boolean).join(' ');
-        const verifyBadge = u.email
-          ? (u.email_verified
-              ? ' <span class="text-xs text-green-400" title="Email verified">✓</span>'
-              : ' <span class="text-xs text-amber-400" title="Email not verified">!</span>')
+        // Show a green ✓ next to verified emails; nothing for unverified.
+        const verifyBadge = (u.email && u.email_verified)
+          ? ' <span style="color:#22c55e; font-weight:700;" title="Email verified">✓</span>'
           : '';
         return `
           <tr>
             <td>
               <div class="font-semibold">${u.username}${isMe ? ' <span class="text-xs text-slate-500">(you)</span>' : ''}</div>
-              ${fullName ? `<div class="text-xs text-slate-500">${fullName}</div>` : ''}
               ${u.phone ? `<div class="text-xs text-slate-500">${u.phone}</div>` : ''}
             </td>
+            <td class="text-slate-300">${fullName || '<span class="text-slate-500">—</span>'}</td>
             <td class="text-slate-400">${u.email || '—'}${verifyBadge}</td>
             <td>${tierBadge}</td>
             <td>

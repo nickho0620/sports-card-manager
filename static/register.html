@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Create Account — Sports Card Manager</title>
+  <title>Create Account — Card Radar</title>
   <link rel="stylesheet" href="/static/styles.css">
   <style>
     body { background: #0f172a; color: #f1f5f9; min-height: 100vh; margin: 0; }
@@ -29,8 +29,7 @@
 
   <header class="page-header">
     <a href="/" class="site-title">
-      <span style="font-size:22px">⚾</span>
-      <h1>Sports Card Manager</h1>
+      <img src="/static/logo.png" alt="Card Radar" style="height:42px; width:auto;">
     </a>
     <a href="/" class="back-btn">← Back to Dashboard</a>
   </header>
@@ -38,19 +37,19 @@
   <div class="login-wrap">
     <div class="login-box">
       <div class="text-center mb-6">
-        <span class="text-4xl">⚾</span>
+        <img src="/static/logo.png" alt="Card Radar" style="width:240px; max-width:100%; height:auto; display:block; margin:0 auto;">
         <h1 class="text-xl font-bold mt-3">Create your account</h1>
         <p class="text-sm text-slate-400 mt-1">Free accounts can scan up to 5 cards</p>
       </div>
       <form id="register-form">
         <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-bottom:16px;">
           <div>
-            <label class="block text-xs text-slate-400 mb-1.5 font-medium">First Name <span class="text-slate-500">(optional)</span></label>
-            <input type="text" id="first_name" class="login-input" placeholder="First" autocomplete="given-name">
+            <label class="block text-xs text-slate-400 mb-1.5 font-medium">First Name</label>
+            <input type="text" id="first_name" class="login-input" placeholder="First" autocomplete="given-name" required>
           </div>
           <div>
-            <label class="block text-xs text-slate-400 mb-1.5 font-medium">Last Name <span class="text-slate-500">(optional)</span></label>
-            <input type="text" id="last_name" class="login-input" placeholder="Last" autocomplete="family-name">
+            <label class="block text-xs text-slate-400 mb-1.5 font-medium">Last Name</label>
+            <input type="text" id="last_name" class="login-input" placeholder="Last" autocomplete="family-name" required>
           </div>
         </div>
         <div class="mb-4">
@@ -58,8 +57,8 @@
           <input type="text" id="username" class="login-input" placeholder="3-32 characters" autocomplete="username" required>
         </div>
         <div class="mb-4">
-          <label class="block text-xs text-slate-400 mb-1.5 font-medium">Email <span class="text-slate-500">(optional, but required for verification + password reset)</span></label>
-          <input type="email" id="email" class="login-input" placeholder="you@example.com" autocomplete="email">
+          <label class="block text-xs text-slate-400 mb-1.5 font-medium">Email</label>
+          <input type="email" id="email" class="login-input" placeholder="you@example.com" autocomplete="email" required>
         </div>
         <div class="mb-4">
           <label class="block text-xs text-slate-400 mb-1.5 font-medium">Phone <span class="text-slate-500">(optional)</span></label>
@@ -103,15 +102,24 @@
         });
         if (res.ok) {
           const data = await res.json();
-          if (data.verification_sent) {
-            // Show a brief "check your email" notice, then go home.
-            const notice = document.getElementById('verify-notice');
-            notice.innerHTML = '✅ <strong>Account created!</strong> We sent a verification link to your email — click it to confirm you\'re human. Redirecting to the dashboard…';
-            notice.style.display = 'block';
-            setTimeout(() => { window.location.href = '/'; }, 2500);
-          } else {
-            window.location.href = '/';
-          }
+          // Hide the form and show a "check your email" panel.
+          document.getElementById('register-form').style.display = 'none';
+          const notice = document.getElementById('verify-notice');
+          notice.innerHTML = `
+            <div style="font-size:48px; margin-bottom:12px;">📬</div>
+            <h2 style="font-size:20px; font-weight:800; color:#f1f5f9; margin:0 0 10px;">Check your email</h2>
+            <p style="color:#cbd5e1; font-size:14px; line-height:1.55; margin:0 0 16px;">
+              We sent a verification link to <strong>${data.email || 'your email'}</strong>.
+              Click it to activate your account — you won't be able to sign in until your email is verified.
+            </p>
+            <p style="color:#94a3b8; font-size:12px; margin:0 0 16px;">Didn't see it? Check your spam folder, or make sure you entered the right address.</p>
+            <a href="/login" style="display:inline-block; background:#3b82f6; color:#fff; padding:10px 24px; border-radius:10px; font-weight:700; font-size:14px; text-decoration:none;">Go to Sign In →</a>
+          `;
+          notice.style.background = 'transparent';
+          notice.style.border = 'none';
+          notice.style.padding = '0';
+          notice.style.textAlign = 'center';
+          notice.style.display = 'block';
         } else {
           const data = await res.json();
           err.textContent = data.detail || 'Registration failed';

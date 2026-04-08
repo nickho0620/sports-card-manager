@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Login — Sports Card Manager</title>
+  <title>Login — Card Radar</title>
   <link rel="stylesheet" href="/static/styles.css">
   <style>
     body { background: #0f172a; color: #f1f5f9; min-height: 100vh; margin: 0; }
@@ -32,8 +32,7 @@
 
   <header class="page-header">
     <a href="/" class="site-title">
-      <span style="font-size:22px">⚾</span>
-      <h1>Sports Card Manager</h1>
+      <img src="/static/logo.png" alt="Card Radar" style="height:42px; width:auto;">
     </a>
     <a href="/" class="back-btn">← Back to Dashboard</a>
   </header>
@@ -41,7 +40,7 @@
   <div class="login-wrap">
     <div class="login-box">
       <div class="text-center mb-6">
-        <span class="text-4xl">⚾</span>
+        <img src="/static/logo.png" alt="Card Radar" style="width:240px; max-width:100%; height:auto; display:block; margin:0 auto;">
         <h1 class="text-xl font-bold mt-3">Sign in to your account</h1>
         <p class="text-sm text-slate-400 mt-1">Manage your sports card collection</p>
       </div>
@@ -59,6 +58,14 @@
         </div>
         <button type="submit" class="login-btn" id="login-btn">Sign In</button>
         <p class="error-msg" id="error-msg"></p>
+        <div id="verify-banner" style="display:none; background:rgba(34,197,94,.12); border:1px solid rgba(34,197,94,.4); border-radius:10px; padding:12px; margin-top:12px; color:#86efac; font-size:13px; text-align:center;">
+          ✅ Email verified! You can now sign in.
+        </div>
+        <div id="unverified-banner" style="display:none; background:rgba(251,191,36,.12); border:1px solid rgba(251,191,36,.4); border-radius:10px; padding:14px; margin-top:12px; color:#fcd34d; font-size:13px; line-height:1.5;">
+          <p style="margin:0 0 10px;">📬 <strong>Your email isn't verified yet.</strong> Check your inbox for the verification link.</p>
+          <button type="button" id="resend-btn" style="background:#334155; color:#fff; border:none; padding:8px 14px; border-radius:8px; font-size:12px; font-weight:600; cursor:pointer;">Resend verification email</button>
+          <p id="resend-msg" style="margin:10px 0 0; color:#cbd5e1; font-size:12px;"></p>
+        </div>
         <p class="text-center mt-4">
           <a href="/register" class="link">New here? Create an account</a>
         </p>
@@ -90,13 +97,20 @@
   </div>
 
   <script>
+    // Show success banner after email verification redirect
+    if (new URLSearchParams(window.location.search).get('verified') === '1') {
+      document.getElementById('verify-banner').style.display = 'block';
+    }
+
     document.getElementById('login-form').addEventListener('submit', async (e) => {
       e.preventDefault();
       const btn = document.getElementById('login-btn');
       const err = document.getElementById('error-msg');
+      const unverified = document.getElementById('unverified-banner');
       btn.disabled = true;
       btn.textContent = 'Signing in...';
       err.textContent = '';
+      unverified.style.display = 'none';
 
       try {
         const res = await fetch('/api/auth/login', {
@@ -111,13 +125,39 @@
           window.location.href = '/';
         } else {
           const data = await res.json();
-          err.textContent = data.detail || 'Invalid credentials';
+          // Detail can be a string OR an object for structured errors
+          const detail = data.detail;
+          if (detail && typeof detail === 'object' && detail.code === 'email_not_verified') {
+            unverified.style.display = 'block';
+          } else {
+            err.textContent = (typeof detail === 'string' ? detail : 'Invalid credentials');
+          }
         }
       } catch (ex) {
         err.textContent = 'Connection error. Try again.';
       }
       btn.disabled = false;
       btn.textContent = 'Sign In';
+    });
+
+    // Resend verification email
+    document.getElementById('resend-btn').addEventListener('click', async () => {
+      const btn = document.getElementById('resend-btn');
+      const msg = document.getElementById('resend-msg');
+      const identifier = document.getElementById('username').value.trim();
+      if (!identifier) { msg.textContent = 'Enter your username or email above first.'; return; }
+      btn.disabled = true; btn.textContent = 'Sending…'; msg.textContent = '';
+      try {
+        await fetch('/api/auth/resend-verification-public', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ identifier }),
+        });
+        msg.textContent = '✅ If that account needs verification, a new email is on its way.';
+      } catch {
+        msg.textContent = 'Could not send. Try again in a moment.';
+      }
+      btn.disabled = false; btn.textContent = 'Resend verification email';
     });
 
     document.getElementById('forgot-form').addEventListener('submit', async (e) => {

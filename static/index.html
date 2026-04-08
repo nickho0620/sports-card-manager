@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Sports Card Manager</title>
+  <title>Card Radar</title>
   <link rel="stylesheet" href="/static/styles.css">
   <style>
     body { background: #0f172a; color: #f1f5f9; }
@@ -188,12 +188,9 @@
   <!-- Sticky header + nav (single block, pure inline styles to dodge Tailwind CDN loading issues) -->
   <div id="site-header" style="position:sticky; top:0; z-index:50; background:#0f172a; border-bottom:1px solid #1e293b;">
     <header style="padding:14px 24px; display:flex; align-items:center; justify-content:space-between; gap:16px; background:#0f172a;">
-      <div style="display:flex; align-items:center; gap:12px; min-width:0;">
-        <span style="font-size:24px;">⚾</span>
-        <div style="min-width:0;">
-          <h1 style="font-size:17px; font-weight:700; margin:0; line-height:1.2; color:#f1f5f9;">Sports Card Manager</h1>
-          <p style="font-size:12px; color:#94a3b8; margin:2px 0 0;" id="header-stats">Loading…</p>
-        </div>
+      <div style="display:flex; align-items:center; gap:14px; min-width:0;">
+        <img src="/static/logo.png" alt="Card Radar" style="height:46px; width:auto; flex-shrink:0;">
+        <p style="font-size:12px; color:#94a3b8; margin:0;" id="header-stats">Loading…</p>
       </div>
       <div style="display:flex; align-items:center; gap:12px; position:relative;" id="header-actions">
         <div id="auth-buttons" style="display:flex; align-items:center; gap:8px; flex-wrap:wrap; justify-content:flex-end;"></div>
@@ -316,7 +313,7 @@
     <div class="info-wrap">
       <!-- Hero -->
       <section class="info-hero">
-        <span class="badge-pill">⚾ Sports Card Manager</span>
+        <span class="badge-pill">📡 Card Radar</span>
         <h1>Your collection,<br>finally organized.</h1>
         <p>Snap a photo of any sports card and get instant identification, real eBay pricing, and a beautifully organized digital collection — no manual data entry required.</p>
       </section>

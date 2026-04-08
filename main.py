@@ -1,5 +1,5 @@
 """
-Sports Card Manager — FastAPI backend
+Card Radar — FastAPI backend
 Serves the mobile PWA and REST API.
 """
 from dotenv import load_dotenv
@@ -42,7 +42,7 @@ from image_processor import process_card_scan
 
 # ── App Setup ────────────────────────────────────────────────────────────────
 
-app = FastAPI(title="Sports Card Manager", version="1.0.0")
+app = FastAPI(title="Card Radar", version="1.0.0")
 
 app.add_middleware(
     CORSMiddleware,
@@ -221,23 +221,28 @@ def user_to_dict(user: User, db=None) -> dict:
 
 
 @app.post("/api/auth/register")
-def register(body: dict):
+def register(body: dict, background_tasks: BackgroundTasks):
     username = (body.get("username") or "").strip()
     password = body.get("password") or ""
-    email = (body.get("email") or "").strip() or None
-    first_name = (body.get("first_name") or "").strip() or None
-    last_name = (body.get("last_name") or "").strip() or None
+    email = (body.get("email") or "").strip()
+    first_name = (body.get("first_name") or "").strip()
+    last_name = (body.get("last_name") or "").strip()
     phone = (body.get("phone") or "").strip() or None
 
+    if not first_name:
+        raise HTTPException(status_code=400, detail="First name is required")
+    if not last_name:
+        raise HTTPException(status_code=400, detail="Last name is required")
+    if not email:
+        raise HTTPException(status_code=400, detail="Email is required")
+    if "@" not in email or "." not in email.split("@")[-1]:
+        raise HTTPException(status_code=400, detail="Please enter a valid email address")
     if len(username) < 3 or len(username) > 32:
         raise HTTPException(status_code=400, detail="Username must be 3-32 characters")
     if not username.replace("_", "").replace("-", "").isalnum():
         raise HTTPException(status_code=400, detail="Username may only contain letters, numbers, _ and -")
     if len(password) < 6:
         raise HTTPException(status_code=400, detail="Password must be at least 6 characters")
-    # Basic email sanity check if provided
-    if email and ("@" not in email or "." not in email.split("@")[-1]):
-        raise HTTPException(status_code=400, detail="Please enter a valid email address")
 
     db = SessionLocal()
     try:
@@ -265,23 +270,23 @@ def register(body: dict):
         db.add(user)
         db.commit()
 
-        # Fire off verification email (best-effort, logs in dev)
-        if email and verify_token:
-            verify_url = f"{get_base_url()}/api/auth/verify-email?token={verify_token}"
-            html, text = verification_email_html(username, verify_url)
-            try:
-                send_email(email, "Verify your Sports Card Manager account", html, text)
-            except Exception as e:
-                print(f"[auth] verification email failed: {e}")
+        # Queue the verification email to send in the background so the
+        # HTTP response returns instantly. The email handler logs success
+        # or failure to the server logs.
+        verify_url = f"{get_base_url()}/api/auth/verify-email?token={verify_token}"
+        html, text = verification_email_html(username, verify_url)
+        background_tasks.add_task(
+            send_email, email, "Verify your Card Radar account", html, text
+        )
 
-        token = _create_session(user.id)
-        resp = JSONResponse({
-            "status": "ok",
-            "user": user_to_dict(user, db),
-            "verification_sent": bool(email),
+        # NOTE: we intentionally do NOT create a session here. The account
+        # exists but is locked until the email is verified via the link.
+        return JSONResponse({
+            "status": "pending_verification",
+            "message": "Account created! Check your email for a verification link to activate your account.",
+            "email": email,
+            "email_sent": True,
         })
-        resp.set_cookie("session", token, httponly=True, samesite="lax", max_age=60 * 60 * 24 * 7)
-        return resp
     finally:
         db.close()
 
@@ -306,14 +311,16 @@ def verify_email(token: str = Query(...)):
             title="Email Verified!",
             icon="✅",
             color="#22c55e",
-            message=f"Thanks, <strong>{user.username}</strong>! Your email is confirmed. You can close this tab and head back to Sports Card Manager.",
+            message=f"Thanks, <strong>{user.username}</strong>! Your account is now active. Click below to sign in and start scanning cards.",
+            button_href="/login?verified=1",
+            button_label="Sign In →",
         ))
     finally:
         db.close()
 
 
 @app.post("/api/auth/resend-verification")
-def resend_verification(request: Request):
+def resend_verification(request: Request, background_tasks: BackgroundTasks):
     user = require_auth(request)
     if not user.email:
         raise HTTPException(status_code=400, detail="No email on file. Add one in your profile first.")
@@ -327,13 +334,22 @@ def resend_verification(request: Request):
         db.commit()
         verify_url = f"{get_base_url()}/api/auth/verify-email?token={u.email_verify_token}"
         html, text = verification_email_html(u.username, verify_url)
-        send_email(u.email, "Verify your Sports Card Manager account", html, text)
+        background_tasks.add_task(
+            send_email, u.email, "Verify your Card Radar account", html, text
+        )
         return {"status": "sent"}
     finally:
         db.close()
 
 
-def _verify_page_html(title: str, icon: str, color: str, message: str) -> str:
+def _verify_page_html(
+    title: str,
+    icon: str,
+    color: str,
+    message: str,
+    button_href: str = "/",
+    button_label: str = "← Back to Dashboard",
+) -> str:
     return f"""<!DOCTYPE html>
 <html><head><meta charset="utf-8"><title>{title}</title>
 <style>
@@ -350,7 +366,7 @@ def _verify_page_html(title: str, icon: str, color: str, message: str) -> str:
     <div class="icon">{icon}</div>
     <h1>{title}</h1>
     <p>{message}</p>
-    <a href="/" class="btn">← Back to Dashboard</a>
+    <a href="{button_href}" class="btn">{button_label}</a>
   </div>
 </body></html>"""
 
@@ -361,13 +377,55 @@ def login(body: dict):
     password = body.get("password") or ""
     db = SessionLocal()
     try:
-        user = db.query(User).filter(User.username == username).first()
+        # Allow login by username OR email
+        user = db.query(User).filter(
+            or_(User.username == username, User.email == username)
+        ).first()
         if not user or not _verify_password(password, user.password_hash):
             raise HTTPException(status_code=401, detail="Invalid username or password")
+        # Block login until email is verified (admins + pre-verified accounts bypass)
+        if not user.is_admin and not user.email_verified:
+            raise HTTPException(
+                status_code=403,
+                detail={
+                    "code": "email_not_verified",
+                    "message": "Please verify your email before signing in. Check your inbox for the verification link.",
+                    "email": user.email,
+                },
+            )
         token = _create_session(user.id)
         resp = JSONResponse({"status": "ok", "user": user_to_dict(user, db)})
         resp.set_cookie("session", token, httponly=True, samesite="lax", max_age=60 * 60 * 24 * 7)
         return resp
+    finally:
+        db.close()
+
+
+@app.post("/api/auth/resend-verification-public")
+def resend_verification_public(body: dict, background_tasks: BackgroundTasks):
+    """Public endpoint: resend verification email using username or email.
+
+    Used from the login page when an unverified user tries to log in.
+    Always returns 200 to avoid leaking which accounts exist.
+    """
+    identifier = (body.get("identifier") or "").strip()
+    if not identifier:
+        return {"status": "ok"}
+    db = SessionLocal()
+    try:
+        user = db.query(User).filter(
+            or_(User.username == identifier, User.email == identifier)
+        ).first()
+        if user and user.email and not user.email_verified:
+            user.email_verify_token = secrets.token_urlsafe(32)
+            user.email_verify_sent_at = datetime.utcnow()
+            db.commit()
+            verify_url = f"{get_base_url()}/api/auth/verify-email?token={user.email_verify_token}"
+            html, text = verification_email_html(user.username, verify_url)
+            background_tasks.add_task(
+                send_email, user.email, "Verify your Card Radar account", html, text
+            )
+        return {"status": "ok"}
     finally:
         db.close()
 
@@ -395,7 +453,7 @@ def auth_check(request: Request):
 
 
 @app.post("/api/auth/forgot-password")
-def forgot_password(body: dict):
+def forgot_password(body: dict, background_tasks: BackgroundTasks):
     """Email-based password reset.
 
     Accepts {username?, email?}. If the account has an email on file we send
@@ -423,7 +481,10 @@ def forgot_password(body: dict):
             db.commit()
             reset_url = f"{get_base_url()}/reset-password?token={user.password_reset_token}"
             html, text = password_reset_email_html(user.username, reset_url)
-            email_sent = send_email(user.email, "Reset your Sports Card Manager password", html, text)
+            background_tasks.add_task(
+                send_email, user.email, "Reset your Card Radar password", html, text
+            )
+            email_sent = True
 
         # Always also log to the admin queue so a human can handle edge cases
         req = PasswordResetRequest(
