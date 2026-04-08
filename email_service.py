@@ -18,7 +18,17 @@ from __future__ import annotations
 import os
 import smtplib
 import ssl
+import sys
 from email.message import EmailMessage
+
+
+def _log(msg: str) -> None:
+    """Print + force flush so Render logs pick it up immediately."""
+    print(msg, flush=True)
+    try:
+        sys.stdout.flush()
+    except Exception:
+        pass
 
 
 def _smtp_configured() -> bool:
@@ -48,20 +58,20 @@ def smtp_diagnostic() -> dict:
 
 def send_email(to: str, subject: str, html_body: str, text_body: str | None = None) -> bool:
     """Send an HTML email. Returns True on success (or dev-log), False on SMTP error."""
+    _log(f"[email] >>> send_email called to={to!r} subject={subject!r}")
     if not to:
-        print("[email] SKIP: no recipient")
+        _log("[email] SKIP: no recipient")
         return False
 
     if not _smtp_configured():
-        # Dev fallback — just log it.
-        print("\n" + "=" * 70)
-        print("[email:DEV] SMTP NOT CONFIGURED — printing email instead of sending")
-        print(f"[email:DEV] Diagnostic: {smtp_diagnostic()}")
-        print(f"[email:DEV] To: {to}")
-        print(f"[email:DEV] Subject: {subject}")
-        print("-" * 70)
-        print(text_body or html_body)
-        print("=" * 70 + "\n")
+        _log("=" * 70)
+        _log("[email:DEV] SMTP NOT CONFIGURED — printing email instead of sending")
+        _log(f"[email:DEV] Diagnostic: {smtp_diagnostic()}")
+        _log(f"[email:DEV] To: {to}")
+        _log(f"[email:DEV] Subject: {subject}")
+        _log("-" * 70)
+        _log(text_body or html_body)
+        _log("=" * 70)
         return True
 
     host = os.getenv("SMTP_HOST")
@@ -71,7 +81,7 @@ def send_email(to: str, subject: str, html_body: str, text_body: str | None = No
     from_addr = os.getenv("SMTP_FROM", user)
     from_name = os.getenv("SMTP_FROM_NAME", "Card Radar")
 
-    print(f"[email] Attempting to send to={to} via {host}:{port} as user={user!r} from={from_addr!r}")
+    _log(f"[email] Attempting to={to} via {host}:{port} user={user!r} from={from_addr!r} pwd_len={len(password or '')}")
 
     msg = EmailMessage()
     msg["Subject"] = subject
@@ -83,31 +93,38 @@ def send_email(to: str, subject: str, html_body: str, text_body: str | None = No
     try:
         context = ssl.create_default_context()
         if port == 465:
+            _log(f"[email] opening SMTP_SSL connection to {host}:{port}")
             with smtplib.SMTP_SSL(host, port, context=context, timeout=20) as s:
+                _log("[email] connected, authenticating…")
                 s.login(user, password)
+                _log("[email] auth ok, sending…")
                 s.send_message(msg)
         else:
+            _log(f"[email] opening SMTP connection to {host}:{port}")
             with smtplib.SMTP(host, port, timeout=20) as s:
                 s.ehlo()
+                _log("[email] starting TLS…")
                 s.starttls(context=context)
                 s.ehlo()
+                _log("[email] TLS ok, authenticating…")
                 s.login(user, password)
+                _log("[email] auth ok, sending…")
                 s.send_message(msg)
-        print(f"[email] ✅ SENT '{subject}' to {to}")
+        _log(f"[email] ✅ SENT '{subject}' to {to}")
         return True
     except smtplib.SMTPAuthenticationError as e:
-        print(f"[email] ❌ AUTH FAILED to {to}: {e.smtp_code} {e.smtp_error!r}")
-        print(f"[email]    SMTP_USER must be exactly 'resend' for Resend; SMTP_PASS must be your re_... API key.")
+        _log(f"[email] ❌ AUTH FAILED to {to}: {e.smtp_code} {e.smtp_error!r}")
+        _log("[email]    SMTP_USER must be exactly 'resend' for Resend; SMTP_PASS must be your re_... API key.")
         return False
     except smtplib.SMTPRecipientsRefused as e:
-        print(f"[email] ❌ RECIPIENT REFUSED to {to}: {e.recipients}")
-        print(f"[email]    Resend's test domain (onboarding@resend.dev) only allows sending to your own verified address.")
+        _log(f"[email] ❌ RECIPIENT REFUSED to {to}: {e.recipients}")
+        _log("[email]    Resend's test domain (onboarding@resend.dev) only allows sending to your own verified address.")
         return False
     except smtplib.SMTPException as e:
-        print(f"[email] ❌ SMTP ERROR to {to}: {type(e).__name__}: {e}")
+        _log(f"[email] ❌ SMTP ERROR to {to}: {type(e).__name__}: {e}")
         return False
     except Exception as e:
-        print(f"[email] ❌ UNEXPECTED ERROR to {to}: {type(e).__name__}: {e}")
+        _log(f"[email] ❌ UNEXPECTED ERROR to {to}: {type(e).__name__}: {e}")
         return False
 
 

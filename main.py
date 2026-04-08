@@ -13,8 +13,18 @@ import json
 import os
 import secrets
 import shutil
+import sys
 import uuid
 from datetime import datetime
+
+# Force stdout/stderr to flush line-by-line so print() statements show up
+# immediately in Render's log viewer. Python otherwise block-buffers when
+# stdout is not a TTY, which makes server-side debugging impossible.
+try:
+    sys.stdout.reconfigure(line_buffering=True, write_through=True)
+    sys.stderr.reconfigure(line_buffering=True, write_through=True)
+except Exception:
+    pass
 
 from datetime import timedelta
 
@@ -228,6 +238,7 @@ def user_to_dict(user: User, db=None) -> dict:
 
 @app.post("/api/auth/register")
 def register(body: dict, background_tasks: BackgroundTasks):
+    print(f"[register] endpoint hit (new code path) body_keys={list(body.keys())}", flush=True)
     username = (body.get("username") or "").strip()
     password = body.get("password") or ""
     email = (body.get("email") or "").strip()
@@ -281,9 +292,11 @@ def register(body: dict, background_tasks: BackgroundTasks):
         # or failure to the server logs.
         verify_url = f"{get_base_url()}/api/auth/verify-email?token={verify_token}"
         html, text = verification_email_html(username, verify_url)
+        print(f"[register] queueing verification email to={email}", flush=True)
         background_tasks.add_task(
             send_email, email, "Verify your Card Radar account", html, text
         )
+        print(f"[register] verification email queued for {email}", flush=True)
 
         # NOTE: we intentionally do NOT create a session here. The account
         # exists but is locked until the email is verified via the link.
