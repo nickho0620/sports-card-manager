@@ -185,29 +185,31 @@
 </head>
 <body class="min-h-screen">
 
-  <!-- Header -->
-  <header class="border-b border-slate-800 px-6 py-4 flex items-center justify-between sticky top-0 z-20" style="background:#0f172a;">
-    <div class="flex items-center gap-3">
-      <span class="text-2xl">⚾</span>
-      <div>
-        <h1 class="text-lg font-bold leading-tight">Sports Card Manager</h1>
-        <p class="text-xs text-slate-400" id="header-stats">Loading…</p>
+  <!-- Sticky header + nav (single block, pure inline styles to dodge Tailwind CDN loading issues) -->
+  <div id="site-header" style="position:sticky; top:0; z-index:50; background:#0f172a; border-bottom:1px solid #1e293b;">
+    <header style="padding:14px 24px; display:flex; align-items:center; justify-content:space-between; gap:16px; background:#0f172a;">
+      <div style="display:flex; align-items:center; gap:12px; min-width:0;">
+        <span style="font-size:24px;">⚾</span>
+        <div style="min-width:0;">
+          <h1 style="font-size:17px; font-weight:700; margin:0; line-height:1.2; color:#f1f5f9;">Sports Card Manager</h1>
+          <p style="font-size:12px; color:#94a3b8; margin:2px 0 0;" id="header-stats">Loading…</p>
+        </div>
       </div>
-    </div>
-    <div class="flex items-center gap-3 relative" id="header-actions">
-      <div id="auth-buttons" class="flex items-center gap-2 flex-wrap justify-end"></div>
-    </div>
-  </header>
+      <div style="display:flex; align-items:center; gap:12px; position:relative;" id="header-actions">
+        <div id="auth-buttons" style="display:flex; align-items:center; gap:8px; flex-wrap:wrap; justify-content:flex-end;"></div>
+      </div>
+    </header>
 
-  <!-- Top-level navigation tabs -->
-  <nav class="border-b border-slate-800 px-6 sticky z-10" style="top:73px; background:#0f172a;">
-    <div class="flex items-center gap-1 overflow-x-auto">
-      <button class="nav-tab active" data-view="all" onclick="switchView('all')">🃏 All Cards</button>
-      <button class="nav-tab" data-view="info" onclick="switchView('info')">ℹ️ Info</button>
-      <button class="nav-tab" data-view="pricing" onclick="switchView('pricing')">💎 Pricing</button>
-      <button class="nav-tab hidden" id="nav-mine" data-view="mine" onclick="switchView('mine')">⭐ My Cards</button>
-    </div>
-  </nav>
+    <!-- Top-level navigation tabs -->
+    <nav style="padding:0 24px; background:#0f172a; border-top:1px solid #1e293b;">
+      <div style="display:flex; align-items:center; gap:4px; overflow-x:auto;">
+        <button class="nav-tab active" data-view="all" onclick="switchView('all')">🃏 All Cards</button>
+        <button class="nav-tab" data-view="info" onclick="switchView('info')">ℹ️ Info</button>
+        <button class="nav-tab" data-view="pricing" onclick="switchView('pricing')">💎 Pricing</button>
+        <button class="nav-tab hidden" id="nav-mine" data-view="mine" onclick="switchView('mine')">⭐ My Cards</button>
+      </div>
+    </nav>
+  </div>
 
   <!-- User status banner -->
   <div id="user-banner" class="hidden px-6 py-2 bg-slate-800/70 border-b border-slate-800 flex items-center justify-between text-xs">
