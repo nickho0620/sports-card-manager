@@ -21,6 +21,8 @@ import ssl
 import sys
 from email.message import EmailMessage
 
+import requests
+
 
 def _log(msg: str) -> None:
     """Print + force flush so Render logs pick it up immediately."""
@@ -35,15 +37,80 @@ def _smtp_configured() -> bool:
     return bool(os.getenv("SMTP_HOST") and os.getenv("SMTP_USER") and os.getenv("SMTP_PASS"))
 
 
+def _use_resend_http() -> bool:
+    """Return True when we should send via Resend's HTTPS API instead of SMTP.
+
+    Many cloud hosts (Render free tier, Vercel, Fly.io) block outbound SMTP
+    on ports 25 / 587. Resend's HTTPS API goes over 443 which is never
+    blocked, so we prefer it whenever the API key is a Resend key.
+    """
+    host = (os.getenv("SMTP_HOST") or "").lower()
+    pwd = os.getenv("SMTP_PASS") or ""
+    # RESEND_API_KEY overrides everything and always takes the HTTPS path
+    if os.getenv("RESEND_API_KEY"):
+        return True
+    return "resend" in host and pwd.startswith("re_")
+
+
+def _resend_api_key() -> str:
+    return os.getenv("RESEND_API_KEY") or os.getenv("SMTP_PASS") or ""
+
+
+def _send_via_resend_http(to: str, subject: str, html_body: str, text_body: str | None) -> bool:
+    """Send an email through the Resend HTTPS API (port 443, never blocked)."""
+    api_key = _resend_api_key()
+    from_addr = os.getenv("SMTP_FROM") or "onboarding@resend.dev"
+    from_name = os.getenv("SMTP_FROM_NAME") or "Card Radar"
+    from_header = f"{from_name} <{from_addr}>"
+
+    _log(f"[email] HTTPS → POST https://api.resend.com/emails to={to} from={from_header!r}")
+    payload = {
+        "from": from_header,
+        "to": [to],
+        "subject": subject,
+        "html": html_body,
+    }
+    if text_body:
+        payload["text"] = text_body
+
+    try:
+        r = requests.post(
+            "https://api.resend.com/emails",
+            headers={
+                "Authorization": f"Bearer {api_key}",
+                "Content-Type": "application/json",
+            },
+            json=payload,
+            timeout=20,
+        )
+    except requests.RequestException as e:
+        _log(f"[email] ❌ HTTPS request failed: {type(e).__name__}: {e}")
+        return False
+
+    if 200 <= r.status_code < 300:
+        _log(f"[email] ✅ SENT via Resend HTTPS to {to} (status={r.status_code} body={r.text[:200]})")
+        return True
+
+    # Resend returns structured JSON errors like
+    # {"statusCode":422,"name":"validation_error","message":"..."}
+    try:
+        err = r.json()
+    except Exception:
+        err = {"raw": r.text[:500]}
+    _log(f"[email] ❌ Resend HTTPS error status={r.status_code} body={err}")
+    return False
+
+
 def get_base_url() -> str:
     return os.getenv("APP_BASE_URL", "http://localhost:8000").rstrip("/")
 
 
 def smtp_diagnostic() -> dict:
-    """Return a dict describing the current SMTP configuration without leaking secrets."""
+    """Return a dict describing the current email configuration without leaking secrets."""
     pwd = os.getenv("SMTP_PASS") or ""
     return {
-        "configured": _smtp_configured(),
+        "transport": "resend-https" if _use_resend_http() else ("smtp" if _smtp_configured() else "dev-logger"),
+        "configured": _smtp_configured() or bool(os.getenv("RESEND_API_KEY")),
         "SMTP_HOST": os.getenv("SMTP_HOST") or "(missing)",
         "SMTP_PORT": os.getenv("SMTP_PORT") or "(default 587)",
         "SMTP_USER": os.getenv("SMTP_USER") or "(missing)",
@@ -57,11 +124,19 @@ def smtp_diagnostic() -> dict:
 
 
 def send_email(to: str, subject: str, html_body: str, text_body: str | None = None) -> bool:
-    """Send an HTML email. Returns True on success (or dev-log), False on SMTP error."""
+    """Send an HTML email. Returns True on success (or dev-log), False on error.
+
+    Prefers Resend's HTTPS API when available (port 443, never blocked by
+    cloud hosts). Falls back to raw SMTP for generic providers.
+    """
     _log(f"[email] >>> send_email called to={to!r} subject={subject!r}")
     if not to:
         _log("[email] SKIP: no recipient")
         return False
+
+    # Preferred path: Resend HTTPS API (bypasses any outbound-SMTP blocking)
+    if _use_resend_http():
+        return _send_via_resend_http(to, subject, html_body, text_body)
 
     if not _smtp_configured():
         _log("=" * 70)
