@@ -102,24 +102,56 @@
         });
         if (res.ok) {
           const data = await res.json();
-          // Hide the form and show a "check your email" panel.
+          const sentTo = data.email || document.getElementById('email').value;
+          // Hide the form and show a prominent "check your email" panel.
           document.getElementById('register-form').style.display = 'none';
           const notice = document.getElementById('verify-notice');
           notice.innerHTML = `
-            <div style="font-size:48px; margin-bottom:12px;">📬</div>
-            <h2 style="font-size:20px; font-weight:800; color:#f1f5f9; margin:0 0 10px;">Check your email</h2>
-            <p style="color:#cbd5e1; font-size:14px; line-height:1.55; margin:0 0 16px;">
-              We sent a verification link to <strong>${data.email || 'your email'}</strong>.
-              Click it to activate your account — you won't be able to sign in until your email is verified.
+            <div style="font-size:64px; margin-bottom:14px; line-height:1;">📬</div>
+            <h2 style="font-size:24px; font-weight:800; color:#f1f5f9; margin:0 0 14px;">Check your email</h2>
+            <p style="color:#cbd5e1; font-size:15px; line-height:1.6; margin:0 0 12px;">
+              We just sent a verification link to:
             </p>
-            <p style="color:#94a3b8; font-size:12px; margin:0 0 16px;">Didn't see it? Check your spam folder, or make sure you entered the right address.</p>
-            <a href="/login" style="display:inline-block; background:#3b82f6; color:#fff; padding:10px 24px; border-radius:10px; font-weight:700; font-size:14px; text-decoration:none;">Go to Sign In →</a>
+            <p style="color:#60a5fa; font-size:16px; font-weight:700; word-break:break-all; background:rgba(59,130,246,.1); border:1px solid rgba(59,130,246,.3); padding:10px 14px; border-radius:10px; margin:0 0 18px;">
+              ${sentTo}
+            </p>
+            <p style="color:#cbd5e1; font-size:14px; line-height:1.6; margin:0 0 18px;">
+              Click the link in that email to activate your account. You won't be able to sign in until your email is verified.
+            </p>
+            <p style="color:#94a3b8; font-size:12px; margin:0 0 22px;">
+              💡 Don't see it after a minute? Check your spam folder.
+            </p>
+            <div style="display:flex; flex-direction:column; gap:10px;">
+              <button type="button" id="resend-verify-btn" style="background:#334155; color:#fff; border:none; padding:11px 18px; border-radius:10px; font-weight:600; font-size:14px; cursor:pointer;">Resend verification email</button>
+              <p id="resend-verify-msg" style="margin:0; color:#94a3b8; font-size:12px; min-height:16px;"></p>
+              <a href="/login" style="display:inline-block; background:#3b82f6; color:#fff; padding:11px 18px; border-radius:10px; font-weight:700; font-size:14px; text-decoration:none;">Go to Sign In →</a>
+            </div>
           `;
           notice.style.background = 'transparent';
           notice.style.border = 'none';
           notice.style.padding = '0';
           notice.style.textAlign = 'center';
           notice.style.display = 'block';
+
+          // Wire up resend button
+          document.getElementById('resend-verify-btn').addEventListener('click', async () => {
+            const rb = document.getElementById('resend-verify-btn');
+            const rm = document.getElementById('resend-verify-msg');
+            rb.disabled = true; rb.textContent = 'Sending…'; rm.textContent = '';
+            try {
+              await fetch('/api/auth/resend-verification-public', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ identifier: sentTo }),
+              });
+              rm.style.color = '#86efac';
+              rm.textContent = '✅ Sent! Give it another minute and check your inbox + spam.';
+            } catch {
+              rm.style.color = '#f87171';
+              rm.textContent = 'Could not resend. Try again in a moment.';
+            }
+            rb.disabled = false; rb.textContent = 'Resend verification email';
+          });
         } else {
           const data = await res.json();
           err.textContent = data.detail || 'Registration failed';

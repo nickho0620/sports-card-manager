@@ -1,0 +1,249 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>My Profile — Card Radar</title>
+  <link rel="stylesheet" href="/static/styles.css">
+  <style>
+    body { background:#0f172a; color:#f1f5f9; min-height:100vh; margin:0; font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif; }
+    .page-header { display:flex; align-items:center; justify-content:space-between; padding:16px 24px; border-bottom:1px solid #1e293b; background:rgba(15,23,42,.95); }
+    .site-title { display:flex; align-items:center; gap:10px; text-decoration:none; color:#f1f5f9; }
+    .back-btn { display:inline-flex; align-items:center; gap:6px; background:#1e293b; border:1px solid #334155; color:#cbd5e1; padding:8px 14px; border-radius:10px; font-size:13px; font-weight:500; text-decoration:none; transition:all .15s; }
+    .back-btn:hover { background:#334155; color:#fff; border-color:#475569; }
+    .wrap { max-width:720px; margin:0 auto; padding:32px 24px 64px; }
+    .page-title { font-size:28px; font-weight:800; margin:0 0 6px; }
+    .page-sub { color:#94a3b8; font-size:14px; margin:0 0 28px; }
+    .card { background:#1e293b; border:1px solid #334155; border-radius:16px; padding:28px; margin-bottom:20px; }
+    .card h2 { font-size:18px; font-weight:700; margin:0 0 4px; color:#f1f5f9; }
+    .card .desc { color:#94a3b8; font-size:13px; margin:0 0 20px; }
+    label { display:block; font-size:12px; color:#94a3b8; margin-bottom:6px; font-weight:600; text-transform:uppercase; letter-spacing:.04em; }
+    .input { width:100%; background:#0f172a; border:1px solid #334155; border-radius:10px; padding:11px 14px; color:#f1f5f9; font-size:14px; outline:none; box-sizing:border-box; transition:border-color .15s; }
+    .input:focus { border-color:#3b82f6; }
+    .input:disabled { opacity:.6; cursor:not-allowed; }
+    .field { margin-bottom:16px; }
+    .row { display:grid; grid-template-columns:1fr 1fr; gap:14px; }
+    @media (max-width:560px) { .row { grid-template-columns:1fr; } }
+    .btn { display:inline-block; background:#3b82f6; color:#fff; border:none; padding:11px 22px; border-radius:10px; font-weight:700; font-size:14px; cursor:pointer; transition:background .15s; }
+    .btn:hover { background:#2563eb; }
+    .btn:disabled { background:#334155; cursor:not-allowed; }
+    .msg { margin-top:14px; font-size:13px; min-height:18px; }
+    .msg.ok { color:#86efac; }
+    .msg.err { color:#f87171; }
+    .badge { display:inline-block; padding:3px 10px; border-radius:99px; font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:.05em; }
+    .badge.verified { background:rgba(34,197,94,.15); color:#86efac; border:1px solid rgba(34,197,94,.35); }
+    .badge.pending { background:rgba(251,191,36,.15); color:#fcd34d; border:1px solid rgba(251,191,36,.35); }
+    .meta-row { display:flex; align-items:center; gap:10px; margin-bottom:10px; flex-wrap:wrap; }
+    .meta-label { font-size:12px; color:#64748b; text-transform:uppercase; letter-spacing:.05em; font-weight:600; }
+    .meta-value { font-size:14px; color:#cbd5e1; font-weight:500; }
+    .danger-zone { border-color:rgba(239,68,68,.3); }
+    .skeleton { color:#475569; }
+  </style>
+</head>
+<body>
+
+  <header class="page-header">
+    <a href="/" class="site-title">
+      <img src="/static/logo.png" alt="Card Radar" style="height:42px; width:auto;">
+    </a>
+    <a href="/" class="back-btn">← Back to Dashboard</a>
+  </header>
+
+  <div class="wrap">
+    <h1 class="page-title">My Profile</h1>
+    <p class="page-sub">Manage your account information, email, and password.</p>
+
+    <!-- Account snapshot -->
+    <div class="card">
+      <h2>Account</h2>
+      <p class="desc">A quick summary of your Card Radar account.</p>
+      <div class="meta-row">
+        <span class="meta-label">Username</span>
+        <span class="meta-value" id="snap-username">—</span>
+      </div>
+      <div class="meta-row">
+        <span class="meta-label">Plan</span>
+        <span class="meta-value" id="snap-plan">—</span>
+      </div>
+      <div class="meta-row">
+        <span class="meta-label">Email status</span>
+        <span id="snap-verified">—</span>
+      </div>
+      <div class="meta-row">
+        <span class="meta-label">Member since</span>
+        <span class="meta-value" id="snap-created">—</span>
+      </div>
+    </div>
+
+    <!-- Personal info -->
+    <div class="card">
+      <h2>Personal Information</h2>
+      <p class="desc">Update your name, phone, and email address. Changing your email will require re-verification.</p>
+      <form id="info-form">
+        <div class="row">
+          <div class="field">
+            <label>First Name</label>
+            <input class="input" type="text" id="first_name" required>
+          </div>
+          <div class="field">
+            <label>Last Name</label>
+            <input class="input" type="text" id="last_name" required>
+          </div>
+        </div>
+        <div class="field">
+          <label>Email</label>
+          <input class="input" type="email" id="email" required>
+        </div>
+        <div class="field">
+          <label>Phone <span style="color:#475569; text-transform:none; letter-spacing:0;">(optional)</span></label>
+          <input class="input" type="tel" id="phone" placeholder="(555) 555-5555">
+        </div>
+        <button type="submit" class="btn" id="info-btn">Save Changes</button>
+        <p class="msg" id="info-msg"></p>
+      </form>
+    </div>
+
+    <!-- Password -->
+    <div class="card">
+      <h2>Change Password</h2>
+      <p class="desc">Choose a new password. You'll need to know your current one.</p>
+      <form id="pw-form">
+        <div class="field">
+          <label>Current Password</label>
+          <input class="input" type="password" id="current_password" autocomplete="current-password" required>
+        </div>
+        <div class="field">
+          <label>New Password</label>
+          <input class="input" type="password" id="new_password" autocomplete="new-password" minlength="6" required>
+        </div>
+        <div class="field">
+          <label>Confirm New Password</label>
+          <input class="input" type="password" id="confirm_password" autocomplete="new-password" minlength="6" required>
+        </div>
+        <button type="submit" class="btn" id="pw-btn">Update Password</button>
+        <p class="msg" id="pw-msg"></p>
+      </form>
+    </div>
+  </div>
+
+  <script>
+    let currentEmail = '';
+
+    function fmtDate(iso) {
+      if (!iso) return '—';
+      try { return new Date(iso).toLocaleDateString(undefined, { year:'numeric', month:'long', day:'numeric' }); }
+      catch { return iso; }
+    }
+
+    async function loadProfile() {
+      try {
+        const res = await fetch('/api/auth/me');
+        if (!res.ok) {
+          window.location.href = '/login';
+          return;
+        }
+        const u = await res.json();
+        document.getElementById('first_name').value = u.first_name || '';
+        document.getElementById('last_name').value = u.last_name || '';
+        document.getElementById('email').value = u.email || '';
+        document.getElementById('phone').value = u.phone || '';
+        currentEmail = u.email || '';
+
+        document.getElementById('snap-username').textContent = u.username || '—';
+        const tier = (u.subscription_tier || 'free').toUpperCase();
+        const planText = u.is_admin
+          ? 'ADMIN'
+          : (tier === 'UNLIMITED'
+              ? `${tier} · ${u.cards_used || 0} scanned`
+              : `${tier} · ${u.cards_used || 0}/${u.card_limit || 0} cards used`);
+        document.getElementById('snap-plan').textContent = planText;
+        document.getElementById('snap-verified').innerHTML = u.email_verified
+          ? '<span class="badge verified">✓ Verified</span>'
+          : '<span class="badge pending">⏳ Pending verification</span>';
+        document.getElementById('snap-created').textContent = fmtDate(u.created_at);
+      } catch (ex) {
+        console.error(ex);
+        window.location.href = '/login';
+      }
+    }
+
+    document.getElementById('info-form').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const btn = document.getElementById('info-btn');
+      const msg = document.getElementById('info-msg');
+      btn.disabled = true; btn.textContent = 'Saving…'; msg.textContent = ''; msg.className = 'msg';
+      const newEmail = document.getElementById('email').value.trim();
+      try {
+        const res = await fetch('/api/auth/me', {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            first_name: document.getElementById('first_name').value,
+            last_name: document.getElementById('last_name').value,
+            email: newEmail,
+            phone: document.getElementById('phone').value,
+          }),
+        });
+        const data = await res.json();
+        if (res.ok) {
+          msg.className = 'msg ok';
+          if (newEmail !== currentEmail) {
+            msg.textContent = '✅ Saved! Because you changed your email, we just sent a new verification link to ' + newEmail + '.';
+          } else {
+            msg.textContent = '✅ Profile updated.';
+          }
+          currentEmail = newEmail;
+          loadProfile();
+        } else {
+          msg.className = 'msg err';
+          msg.textContent = data.detail || 'Could not save changes.';
+        }
+      } catch {
+        msg.className = 'msg err';
+        msg.textContent = 'Connection error. Try again.';
+      }
+      btn.disabled = false; btn.textContent = 'Save Changes';
+    });
+
+    document.getElementById('pw-form').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const btn = document.getElementById('pw-btn');
+      const msg = document.getElementById('pw-msg');
+      btn.disabled = true; btn.textContent = 'Updating…'; msg.textContent = ''; msg.className = 'msg';
+      const cur = document.getElementById('current_password').value;
+      const nw = document.getElementById('new_password').value;
+      const cf = document.getElementById('confirm_password').value;
+      if (nw !== cf) {
+        msg.className = 'msg err';
+        msg.textContent = 'New password and confirmation do not match.';
+        btn.disabled = false; btn.textContent = 'Update Password';
+        return;
+      }
+      try {
+        const res = await fetch('/api/auth/me', {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ current_password: cur, new_password: nw }),
+        });
+        const data = await res.json();
+        if (res.ok) {
+          msg.className = 'msg ok';
+          msg.textContent = '✅ Password updated successfully.';
+          document.getElementById('current_password').value = '';
+          document.getElementById('new_password').value = '';
+          document.getElementById('confirm_password').value = '';
+        } else {
+          msg.className = 'msg err';
+          msg.textContent = data.detail || 'Could not update password.';
+        }
+      } catch {
+        msg.className = 'msg err';
+        msg.textContent = 'Connection error. Try again.';
+      }
+      btn.disabled = false; btn.textContent = 'Update Password';
+    });
+
+    loadProfile();
+  </script>
+</body>
+</html>

@@ -29,15 +29,34 @@ def get_base_url() -> str:
     return os.getenv("APP_BASE_URL", "http://localhost:8000").rstrip("/")
 
 
+def smtp_diagnostic() -> dict:
+    """Return a dict describing the current SMTP configuration without leaking secrets."""
+    pwd = os.getenv("SMTP_PASS") or ""
+    return {
+        "configured": _smtp_configured(),
+        "SMTP_HOST": os.getenv("SMTP_HOST") or "(missing)",
+        "SMTP_PORT": os.getenv("SMTP_PORT") or "(default 587)",
+        "SMTP_USER": os.getenv("SMTP_USER") or "(missing)",
+        "SMTP_PASS_set": bool(pwd),
+        "SMTP_PASS_len": len(pwd),
+        "SMTP_PASS_prefix": (pwd[:3] + "…") if pwd else "(missing)",
+        "SMTP_FROM": os.getenv("SMTP_FROM") or "(default to SMTP_USER)",
+        "SMTP_FROM_NAME": os.getenv("SMTP_FROM_NAME") or "(default Card Radar)",
+        "APP_BASE_URL": os.getenv("APP_BASE_URL") or "(default http://localhost:8000)",
+    }
+
+
 def send_email(to: str, subject: str, html_body: str, text_body: str | None = None) -> bool:
     """Send an HTML email. Returns True on success (or dev-log), False on SMTP error."""
     if not to:
-        print("[email] skip: no recipient")
+        print("[email] SKIP: no recipient")
         return False
 
     if not _smtp_configured():
         # Dev fallback — just log it.
         print("\n" + "=" * 70)
+        print("[email:DEV] SMTP NOT CONFIGURED — printing email instead of sending")
+        print(f"[email:DEV] Diagnostic: {smtp_diagnostic()}")
         print(f"[email:DEV] To: {to}")
         print(f"[email:DEV] Subject: {subject}")
         print("-" * 70)
@@ -52,6 +71,8 @@ def send_email(to: str, subject: str, html_body: str, text_body: str | None = No
     from_addr = os.getenv("SMTP_FROM", user)
     from_name = os.getenv("SMTP_FROM_NAME", "Card Radar")
 
+    print(f"[email] Attempting to send to={to} via {host}:{port} as user={user!r} from={from_addr!r}")
+
     msg = EmailMessage()
     msg["Subject"] = subject
     msg["From"] = f"{from_name} <{from_addr}>"
@@ -62,20 +83,31 @@ def send_email(to: str, subject: str, html_body: str, text_body: str | None = No
     try:
         context = ssl.create_default_context()
         if port == 465:
-            with smtplib.SMTP_SSL(host, port, context=context, timeout=15) as s:
+            with smtplib.SMTP_SSL(host, port, context=context, timeout=20) as s:
                 s.login(user, password)
                 s.send_message(msg)
         else:
-            with smtplib.SMTP(host, port, timeout=15) as s:
+            with smtplib.SMTP(host, port, timeout=20) as s:
                 s.ehlo()
                 s.starttls(context=context)
                 s.ehlo()
                 s.login(user, password)
                 s.send_message(msg)
-        print(f"[email] sent '{subject}' to {to}")
+        print(f"[email] ✅ SENT '{subject}' to {to}")
         return True
+    except smtplib.SMTPAuthenticationError as e:
+        print(f"[email] ❌ AUTH FAILED to {to}: {e.smtp_code} {e.smtp_error!r}")
+        print(f"[email]    SMTP_USER must be exactly 'resend' for Resend; SMTP_PASS must be your re_... API key.")
+        return False
+    except smtplib.SMTPRecipientsRefused as e:
+        print(f"[email] ❌ RECIPIENT REFUSED to {to}: {e.recipients}")
+        print(f"[email]    Resend's test domain (onboarding@resend.dev) only allows sending to your own verified address.")
+        return False
+    except smtplib.SMTPException as e:
+        print(f"[email] ❌ SMTP ERROR to {to}: {type(e).__name__}: {e}")
+        return False
     except Exception as e:
-        print(f"[email] ERROR sending to {to}: {e}")
+        print(f"[email] ❌ UNEXPECTED ERROR to {to}: {type(e).__name__}: {e}")
         return False
 
 

@@ -189,7 +189,7 @@
   <div id="site-header" style="position:sticky; top:0; z-index:50; background:#0f172a; border-bottom:1px solid #1e293b;">
     <header style="padding:14px 24px; display:flex; align-items:center; justify-content:space-between; gap:16px; background:#0f172a;">
       <div style="display:flex; align-items:center; gap:14px; min-width:0;">
-        <img src="/static/logo.png" alt="Card Radar" style="height:46px; width:auto; flex-shrink:0;">
+        <img src="/static/logo.png" alt="Card Radar" style="height:96px; width:auto; flex-shrink:0;">
         <p style="font-size:12px; color:#94a3b8; margin:0;" id="header-stats">Loading…</p>
       </div>
       <div style="display:flex; align-items:center; gap:12px; position:relative;" id="header-actions">
@@ -579,7 +579,7 @@
             <div id="user-menu-panel" class="user-menu-panel hidden">
               <div class="menu-header">
                 <p class="label">Signed in as</p>
-                <p class="uname">${currentUser.username}</p>
+                <a href="/profile" class="uname" style="display:block; padding:0; text-decoration:none; color:#fff;">${currentUser.username}</a>
                 ${isAdmin
                   ? '<p class="meta admin">ADMIN</p>'
                   : ((currentUser.subscription_tier||'free').toLowerCase() === 'unlimited'
@@ -587,6 +587,7 @@
                       : `<p class="meta">${(currentUser.subscription_tier||'free').toUpperCase()} · ${currentUser.cards_used||0}/${currentUser.card_limit||0} cards</p>`)
                 }
               </div>
+              <a href="/profile">👤 <span>My Profile</span></a>
               ${(isAdmin || ['pro','unlimited'].includes((currentUser.subscription_tier||'free').toLowerCase()))
                 ? `<a href="/api/export/csv">📊 <span>Export CSV</span></a>`
                 : `<button onclick="closeUserMenu();switchView('pricing')" title="Upgrade to Pro to export CSV">📊 <span>Export CSV</span> <span style="margin-left:auto;font-size:10px;background:#3b82f6;color:#fff;padding:2px 6px;border-radius:6px;">PRO</span></button>`}

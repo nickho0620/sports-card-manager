@@ -36,6 +36,7 @@ from email_service import (
     get_base_url,
     password_reset_email_html,
     send_email,
+    smtp_diagnostic,
     verification_email_html,
 )
 from image_processor import process_card_scan
@@ -195,6 +196,11 @@ def register_page():
 @app.get("/admin", include_in_schema=False)
 def admin_page():
     return FileResponse(os.path.join(STATIC_DIR, "admin.html"))
+
+
+@app.get("/profile", include_in_schema=False)
+def profile_page():
+    return FileResponse(os.path.join(STATIC_DIR, "profile.html"))
 
 
 # ── Auth API ────────────────────────────────────────────────────────────────
@@ -586,6 +592,78 @@ def auth_me(request: Request):
         db.close()
 
 
+@app.patch("/api/auth/me")
+def auth_update_me(request: Request, body: dict, background_tasks: BackgroundTasks):
+    """Let an authenticated user update their own profile.
+
+    Accepted fields: first_name, last_name, email, phone, current_password, new_password.
+    Changing the email re-locks the account: email_verified is set to False
+    and a new verification link is sent.
+    Changing the password requires the current password.
+    """
+    current = require_auth(request)
+    db = SessionLocal()
+    try:
+        user = db.get(User, current.id)
+        if not user:
+            raise HTTPException(status_code=404, detail="User not found")
+
+        # Optional simple fields
+        if "first_name" in body:
+            fn = (body.get("first_name") or "").strip()
+            if not fn:
+                raise HTTPException(status_code=400, detail="First name cannot be empty")
+            user.first_name = fn
+        if "last_name" in body:
+            ln = (body.get("last_name") or "").strip()
+            if not ln:
+                raise HTTPException(status_code=400, detail="Last name cannot be empty")
+            user.last_name = ln
+        if "phone" in body:
+            user.phone = (body.get("phone") or "").strip() or None
+
+        # Email change → requires re-verification
+        if "email" in body:
+            new_email = (body.get("email") or "").strip()
+            if not new_email:
+                raise HTTPException(status_code=400, detail="Email cannot be empty")
+            if "@" not in new_email or "." not in new_email.split("@")[-1]:
+                raise HTTPException(status_code=400, detail="Please enter a valid email address")
+            if new_email != (user.email or ""):
+                # Make sure no one else has this address
+                clash = db.query(User).filter(User.email == new_email, User.id != user.id).first()
+                if clash:
+                    raise HTTPException(status_code=400, detail="An account with that email already exists")
+                user.email = new_email
+                user.email_verified = False
+                user.email_verify_token = secrets.token_urlsafe(32)
+                user.email_verify_sent_at = datetime.utcnow()
+                # Queue re-verification email
+                verify_url = f"{get_base_url()}/api/auth/verify-email?token={user.email_verify_token}"
+                html, text = verification_email_html(user.username, verify_url)
+                background_tasks.add_task(
+                    send_email, user.email, "Verify your Card Radar account", html, text
+                )
+
+        # Password change → requires current password
+        new_password = body.get("new_password") or ""
+        if new_password:
+            current_password = body.get("current_password") or ""
+            if not current_password:
+                raise HTTPException(status_code=400, detail="Current password is required to set a new one")
+            if not _verify_password(current_password, user.password_hash):
+                raise HTTPException(status_code=400, detail="Current password is incorrect")
+            if len(new_password) < 6:
+                raise HTTPException(status_code=400, detail="New password must be at least 6 characters")
+            user.password_hash = _hash_password(new_password)
+
+        db.commit()
+        db.refresh(user)
+        return {"status": "ok", "user": user_to_dict(user, db)}
+    finally:
+        db.close()
+
+
 # ── Admin: User Management ──────────────────────────────────────────────────
 
 @app.get("/api/admin/users")
@@ -833,6 +911,28 @@ def admin_stats(request: Request):
         }
     finally:
         db.close()
+
+
+@app.get("/api/admin/email-diagnostic")
+def admin_email_diagnostic(request: Request):
+    """Admin-only: returns the current SMTP env-var configuration so you can
+    confirm Render actually loaded them. Never returns the password itself."""
+    require_admin(request)
+    return smtp_diagnostic()
+
+
+@app.post("/api/admin/email-test")
+def admin_email_test(request: Request, body: dict):
+    """Admin-only: synchronously try to send a test email and return the result.
+    Body: {"to": "you@example.com"}"""
+    require_admin(request)
+    to = (body.get("to") or "").strip()
+    if not to:
+        raise HTTPException(status_code=400, detail="Provide a 'to' address")
+    html = "<p>This is a Card Radar SMTP test email. If you see this, sending works! 🎉</p>"
+    text = "This is a Card Radar SMTP test email. If you see this, sending works!"
+    ok = send_email(to, "Card Radar SMTP test", html, text)
+    return {"ok": ok, "to": to, "diagnostic": smtp_diagnostic()}
 
 
 # ── Subscription (stub) ─────────────────────────────────────────────────────
