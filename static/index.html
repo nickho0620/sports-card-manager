@@ -38,7 +38,12 @@
     /* User menu dropdown */
     .user-menu-btn { display:flex; align-items:center; gap:8px; background:#1e293b; border:1px solid #334155; padding:8px 14px; border-radius:12px; color:#f1f5f9; font-size:13px; font-weight:500; cursor:pointer; transition:all .15s; }
     .user-menu-btn:hover { background:#334155; border-color:#475569; }
-    .user-menu-panel { position:fixed; top:74px; right:20px; background:#1e293b; border:1px solid #334155; border-radius:12px; padding:8px; min-width:240px; box-shadow:0 10px 30px rgba(0,0,0,.5); z-index:9999; }
+    .user-menu-panel { position:fixed; top:128px; right:20px; background:#1e293b; border:1px solid #334155; border-radius:12px; padding:8px; min-width:240px; box-shadow:0 10px 30px rgba(0,0,0,.5); z-index:9999; color:#f1f5f9; }
+    .user-menu-panel .menu-header p { color:#f1f5f9; }
+    .user-menu-panel .menu-header .label { color:#64748b; font-size:11px; text-transform:uppercase; letter-spacing:.08em; margin:0 0 4px; font-weight:600; }
+    .user-menu-panel .menu-header .uname { font-size:14px; font-weight:700; color:#fff; margin:0; word-break:break-all; }
+    .user-menu-panel .menu-header .meta { font-size:11px; color:#94a3b8; margin:4px 0 0; }
+    .user-menu-panel .menu-header .meta.admin { color:#c084fc; }
     .user-menu-panel a, .user-menu-panel button { display:flex; align-items:center; gap:10px; width:100%; padding:10px 12px; border-radius:8px; color:#cbd5e1; font-size:13px; text-decoration:none; background:transparent; border:none; cursor:pointer; text-align:left; transition:all .12s; }
     .user-menu-panel a:hover, .user-menu-panel button:hover { background:#0f172a; color:#fff; }
     .user-menu-panel .menu-divider { height:1px; background:#334155; margin:6px 4px; }
@@ -181,7 +186,7 @@
 <body class="min-h-screen">
 
   <!-- Header -->
-  <header class="border-b border-slate-800 px-6 py-4 flex items-center justify-between sticky top-0 bg-slate-900/95 backdrop-blur z-20">
+  <header class="border-b border-slate-800 px-6 py-4 flex items-center justify-between sticky top-0 z-20" style="background:#0f172a;">
     <div class="flex items-center gap-3">
       <span class="text-2xl">⚾</span>
       <div>
@@ -190,12 +195,12 @@
       </div>
     </div>
     <div class="flex items-center gap-3 relative" id="header-actions">
-      <span id="auth-buttons"></span>
+      <div id="auth-buttons" class="flex items-center gap-2 flex-wrap justify-end"></div>
     </div>
   </header>
 
   <!-- Top-level navigation tabs -->
-  <nav class="border-b border-slate-800 px-6 sticky bg-slate-900/95 backdrop-blur z-10" style="top:73px">
+  <nav class="border-b border-slate-800 px-6 sticky z-10" style="top:73px; background:#0f172a;">
     <div class="flex items-center gap-1 overflow-x-auto">
       <button class="nav-tab active" data-view="all" onclick="switchView('all')">🃏 All Cards</button>
       <button class="nav-tab" data-view="info" onclick="switchView('info')">ℹ️ Info</button>
@@ -565,7 +570,7 @@
           : '';
         const initial = (currentUser.username || '?').charAt(0).toUpperCase();
         el.innerHTML = `
-          <a href="/scanner" class="flex items-center gap-2 bg-blue-600 hover:bg-blue-500 text-white px-4 py-2 rounded-xl font-semibold text-sm transition-colors">📷 Scan Card</a>
+          <a href="/scanner" class="inline-flex items-center gap-2 bg-blue-600 hover:bg-blue-500 text-white px-4 py-2 rounded-xl font-semibold text-sm transition-colors whitespace-nowrap">📷 Scan Card</a>
           <div class="relative">
             <button onclick="toggleUserMenu(event)" class="user-menu-btn">
               <span class="w-7 h-7 rounded-full bg-blue-600 flex items-center justify-center text-sm font-bold">${initial}</span>
@@ -574,13 +579,13 @@
             </button>
             <div id="user-menu-panel" class="user-menu-panel hidden">
               <div class="menu-header">
-                <p class="text-xs text-slate-500 uppercase tracking-wider">Signed in as</p>
-                <p class="text-sm font-semibold text-white truncate">${currentUser.username}</p>
+                <p class="label">Signed in as</p>
+                <p class="uname">${currentUser.username}</p>
                 ${isAdmin
-                  ? '<p class="text-xs text-purple-400 mt-1">ADMIN</p>'
+                  ? '<p class="meta admin">ADMIN</p>'
                   : ((currentUser.subscription_tier||'free').toLowerCase() === 'unlimited'
-                      ? `<p class="text-xs text-slate-400 mt-1">UNLIMITED · ${currentUser.cards_used||0} scanned</p>`
-                      : `<p class="text-xs text-slate-400 mt-1">${(currentUser.subscription_tier||'free').toUpperCase()} · ${currentUser.cards_used||0}/${currentUser.card_limit||0} cards</p>`)
+                      ? `<p class="meta">UNLIMITED · ${currentUser.cards_used||0} scanned</p>`
+                      : `<p class="meta">${(currentUser.subscription_tier||'free').toUpperCase()} · ${currentUser.cards_used||0}/${currentUser.card_limit||0} cards</p>`)
                 }
               </div>
               ${(isAdmin || ['pro','unlimited'].includes((currentUser.subscription_tier||'free').toLowerCase()))
@@ -618,8 +623,8 @@
         document.getElementById('guest-banner').classList.add('hidden');
       } else {
         el.innerHTML = `
-          <a href="/register" class="flex items-center gap-2 bg-green-600 hover:bg-green-500 text-white px-4 py-2 rounded-xl font-semibold text-sm transition-colors shadow-lg">✨ Sign Up Free</a>
-          <a href="/login" class="flex items-center gap-2 bg-blue-600 hover:bg-blue-500 text-white px-4 py-2 rounded-xl font-semibold text-sm transition-colors">Login</a>`;
+          <a href="/register" class="inline-flex items-center gap-2 bg-green-600 hover:bg-green-500 text-white px-4 py-2 rounded-xl font-semibold text-sm transition-colors shadow-lg whitespace-nowrap">✨ Sign Up Free</a>
+          <a href="/login" class="inline-flex items-center gap-2 bg-blue-600 hover:bg-blue-500 text-white px-4 py-2 rounded-xl font-semibold text-sm transition-colors whitespace-nowrap">Login</a>`;
         navMine.classList.add('hidden');
         banner.classList.add('hidden');
         document.getElementById('guest-banner').classList.remove('hidden');
