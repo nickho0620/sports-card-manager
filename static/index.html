@@ -271,7 +271,7 @@
       <div class="upgrade-header">
         <span class="badge-pill">💎 Upgrade</span>
         <h2>Unlock more of your collection</h2>
-        <p>Free accounts can upload up to 5 cards. Pick a plan below to scan more and unlock CSV export.</p>
+        <p>Free accounts can scan up to 5 cards total. Upgrade to Pro for 100 cards per month, or go Unlimited for no limits.</p>
       </div>
       <div class="upgrade-grid">
         <div class="pricing-card featured">
@@ -282,7 +282,7 @@
             <p class="pricing-sub">For serious hobby collectors.</p>
           </div>
           <ul class="pricing-features">
-            <li>Up to <strong>100 cards</strong></li>
+            <li><strong>100 cards per month</strong></li>
             <li>Priority pricing refreshes</li>
             <li><strong>CSV export</strong></li>
           </ul>
@@ -533,7 +533,8 @@
             <p class="pricing-sub">For serious hobby collectors.</p>
           </div>
           <ul class="pricing-features">
-            <li>Up to <strong>100 cards</strong></li>
+            <li><strong>100 cards per month</strong></li>
+            <li>Resets on the 1st of each month</li>
             <li>Everything in Free</li>
             <li>Priority pricing refreshes</li>
             <li><strong>CSV export</strong> of your collection</li>
@@ -696,8 +697,10 @@
                 ${isAdmin
                   ? '<p class="meta admin">ADMIN</p>'
                   : ((currentUser.subscription_tier||'free').toLowerCase() === 'unlimited'
-                      ? `<p class="meta">UNLIMITED · ${currentUser.cards_used||0} scanned</p>`
-                      : `<p class="meta">${(currentUser.subscription_tier||'free').toUpperCase()} · ${currentUser.cards_used||0}/${currentUser.card_limit||0} cards</p>`)
+                      ? `<p class="meta">UNLIMITED · ${currentUser.total_cards||0} total</p>`
+                      : (currentUser.subscription_tier||'free').toLowerCase() === 'pro'
+                        ? `<p class="meta">PRO · ${currentUser.cards_used||0}/100 this month</p>`
+                        : `<p class="meta">FREE · ${currentUser.cards_used||0}/${currentUser.card_limit||0} cards</p>`)
                 }
               </div>
               <a href="/profile">👤 <span>My Profile</span></a>
@@ -717,15 +720,22 @@
           banner.classList.add('hidden');
         } else {
           const used = currentUser.cards_used || 0;
-          const limit = currentUser.card_limit || 0;
+          const limit = currentUser.card_limit;
           const tierRaw = (currentUser.subscription_tier || 'free').toLowerCase();
           const tier = tierRaw.toUpperCase();
           if (tierRaw === 'unlimited') {
-            bannerText.textContent = `${tier} · ${used} ${used === 1 ? 'card' : 'cards'} scanned`;
+            bannerText.textContent = `${tier} · ${currentUser.total_cards || used} ${(currentUser.total_cards || used) === 1 ? 'card' : 'cards'} total`;
             upgradeLink.classList.add('hidden');
+          } else if (tierRaw === 'pro') {
+            bannerText.textContent = `${tier} · ${used}/${limit} cards this month (resets on the 1st)`;
+            if (used >= limit) {
+              upgradeLink.classList.remove('hidden');
+            } else {
+              upgradeLink.classList.add('hidden');
+            }
           } else {
             bannerText.textContent = `${tier} · ${used}/${limit} cards used`;
-            if (used >= limit) {
+            if (limit && used >= limit) {
               upgradeLink.classList.remove('hidden');
             } else {
               upgradeLink.classList.add('hidden');

@@ -156,7 +156,18 @@ def _bootstrap_admin():
 
 
 def _user_card_count(db, user_id: str) -> int:
+    """Total cards owned by a user (lifetime)."""
     return db.query(Card).filter(Card.owner_id == user_id).count()
+
+
+def _user_monthly_card_count(db, user_id: str) -> int:
+    """Cards created by a user in the current calendar month."""
+    now = datetime.utcnow()
+    month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+    return db.query(Card).filter(
+        Card.owner_id == user_id,
+        Card.created_at >= month_start,
+    ).count()
 
 # Cloudinary config (optional — falls back to local storage if not set)
 USE_CLOUDINARY = bool(os.getenv("CLOUDINARY_CLOUD_NAME"))
@@ -241,8 +252,24 @@ def profile_page(request: Request):
 
 def user_to_dict(user: User, db=None) -> dict:
     cards_used = 0
+    monthly_cards_used = 0
     if db is not None:
         cards_used = _user_card_count(db, user.id)
+        monthly_cards_used = _user_monthly_card_count(db, user.id)
+    tier = (user.subscription_tier or "free").lower()
+    # Effective limit depends on tier:
+    #   Free = lifetime cap (card_limit)
+    #   Pro = 100/month
+    #   Unlimited/admin = unlimited
+    if user.is_admin or tier == "unlimited":
+        effective_limit = None  # unlimited
+        effective_used = cards_used
+    elif tier == "pro":
+        effective_limit = 100
+        effective_used = monthly_cards_used
+    else:
+        effective_limit = user.card_limit
+        effective_used = cards_used
     return {
         "id": user.id,
         "username": user.username,
@@ -252,11 +279,13 @@ def user_to_dict(user: User, db=None) -> dict:
         "phone": user.phone,
         "email_verified": bool(user.email_verified),
         "is_admin": user.is_admin,
-        "card_limit": user.card_limit,
+        "card_limit": effective_limit,
         "subscription_tier": user.subscription_tier,
         "subscription_expires_at": (user.subscription_expires_at.isoformat() + "Z") if user.subscription_expires_at else None,
         "anonymize_cards": bool(user.anonymize_cards),
-        "cards_used": cards_used,
+        "cards_used": effective_used,
+        "monthly_cards_used": monthly_cards_used,
+        "total_cards": cards_used,
         "created_at": (user.created_at.isoformat() + "Z") if user.created_at else None,
     }
 
@@ -1430,15 +1459,30 @@ async def upload_card(
     if not front_image and not back_image:
         raise HTTPException(status_code=400, detail="At least one image is required")
 
-    # Enforce per-user card limit
+    # Enforce per-user card limit:
+    #   Free: lifetime cap (card_limit, default 5)
+    #   Pro:  100 per calendar month (resets on the 1st)
+    #   Unlimited/Admin: no cap
     db_check = SessionLocal()
     try:
-        used = _user_card_count(db_check, user.id)
-        if not user.is_admin and used >= user.card_limit:
-            raise HTTPException(
-                status_code=403,
-                detail=f"Card limit reached ({user.card_limit}). Upgrade your account or contact admin to increase your limit.",
-            )
+        tier = (user.subscription_tier or "free").lower()
+        if not user.is_admin and tier != "unlimited":
+            if tier == "pro":
+                used = _user_monthly_card_count(db_check, user.id)
+                limit = 100
+                if used >= limit:
+                    raise HTTPException(
+                        status_code=403,
+                        detail=f"Monthly card limit reached ({used}/{limit} this month). Your limit resets on the 1st of next month.",
+                    )
+            else:
+                # Free tier — lifetime cap
+                used = _user_card_count(db_check, user.id)
+                if used >= user.card_limit:
+                    raise HTTPException(
+                        status_code=403,
+                        detail=f"Card limit reached ({used}/{user.card_limit}). Upgrade to Pro for 100 cards per month.",
+                    )
     finally:
         db_check.close()
 
