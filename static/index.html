@@ -212,8 +212,14 @@
   </div>
 
   <!-- User status banner -->
-  <div id="user-banner" class="hidden px-6 py-2 bg-slate-800/70 border-b border-slate-800 flex items-center justify-between text-xs">
-    <span id="user-banner-text" class="text-slate-300"></span>
+  <div id="user-banner" class="hidden px-6 py-2.5 bg-slate-800/70 border-b border-slate-800 flex items-center justify-between text-xs">
+    <div class="flex items-center gap-4 flex-wrap">
+      <span id="user-banner-tier" class="font-bold tracking-wide" style="letter-spacing:.05em;"></span>
+      <span class="text-slate-600">|</span>
+      <span id="user-banner-scans" class="text-slate-300"></span>
+      <span class="text-slate-600">|</span>
+      <span id="user-banner-reprices" class="text-slate-300"></span>
+    </div>
     <button id="upgrade-link" onclick="openUpgradeModal()" class="text-blue-400 hover:text-blue-300 font-semibold hidden">Upgrade →</button>
   </div>
 
@@ -674,7 +680,9 @@
       const el = document.getElementById('auth-buttons');
       const navMine = document.getElementById('nav-mine');
       const banner = document.getElementById('user-banner');
-      const bannerText = document.getElementById('user-banner-text');
+      const bannerTier = document.getElementById('user-banner-tier');
+      const bannerScans = document.getElementById('user-banner-scans');
+      const bannerReprices = document.getElementById('user-banner-reprices');
       const upgradeLink = document.getElementById('upgrade-link');
 
       if (isLoggedIn) {
@@ -723,24 +731,36 @@
           const limit = currentUser.card_limit;
           const tierRaw = (currentUser.subscription_tier || 'free').toLowerCase();
           const tier = tierRaw.toUpperCase();
+          const repricesUsed = currentUser.reprices_used || 0;
+          const repriceLimit = currentUser.reprice_limit;
+
+          // Tier badge
+          const tierColors = { free: '#475569', pro: '#3b82f6', unlimited: '#9333ea' };
+          bannerTier.textContent = tier;
+          bannerTier.style.color = tierColors[tierRaw] || '#94a3b8';
+
+          // Scans
           if (tierRaw === 'unlimited') {
-            bannerText.textContent = `${tier} · ${currentUser.total_cards || used} ${(currentUser.total_cards || used) === 1 ? 'card' : 'cards'} total`;
-            upgradeLink.classList.add('hidden');
+            bannerScans.textContent = `Scans: ${currentUser.total_cards || used} total`;
           } else if (tierRaw === 'pro') {
-            bannerText.textContent = `${tier} · ${used}/${limit} cards this month (resets on the 1st)`;
-            if (used >= limit) {
-              upgradeLink.classList.remove('hidden');
-            } else {
-              upgradeLink.classList.add('hidden');
-            }
+            bannerScans.textContent = `Scans: ${used} / ${limit} this month`;
           } else {
-            bannerText.textContent = `${tier} · ${used}/${limit} cards used`;
-            if (limit && used >= limit) {
-              upgradeLink.classList.remove('hidden');
-            } else {
-              upgradeLink.classList.add('hidden');
-            }
+            bannerScans.textContent = `Scans: ${used} / ${limit}`;
           }
+
+          // Reprices
+          if (repriceLimit === null || repriceLimit === undefined) {
+            bannerReprices.textContent = `Reprices: unlimited`;
+          } else if (repriceLimit === 0) {
+            bannerReprices.innerHTML = `Reprices: <span style="color:#64748b;">unavailable</span>`;
+          } else {
+            bannerReprices.textContent = `Reprices: ${repricesUsed} / ${repriceLimit} this month`;
+          }
+
+          // Upgrade link
+          const atLimit = (tierRaw === 'pro' && used >= limit) || (tierRaw === 'free' && limit && used >= limit);
+          upgradeLink.classList.toggle('hidden', !atLimit);
+
           banner.classList.remove('hidden');
         }
         document.getElementById('guest-banner').classList.add('hidden');
