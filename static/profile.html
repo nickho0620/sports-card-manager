@@ -113,13 +113,13 @@
     <div class="card">
       <h2>Privacy</h2>
       <p class="desc">Control how your name appears on publicly shared cards.</p>
-      <label style="display:flex; align-items:center; gap:12px; cursor:pointer; text-transform:none; letter-spacing:0; font-size:14px; color:#cbd5e1;">
-        <div class="toggle-track" id="anon-toggle-track">
-          <input type="checkbox" id="anonymize_cards" class="sr-only">
+      <div id="anon-toggle-track" style="display:flex; align-items:center; gap:12px; cursor:pointer; font-size:14px; color:#cbd5e1;">
+        <div class="toggle-track">
           <div class="toggle-thumb"></div>
         </div>
         <span>Hide my name on public cards (show "Anonymous" instead)</span>
-      </label>
+      </div>
+      <input type="hidden" id="anonymize_cards">
       <p class="msg" id="anon-msg" style="margin-top:10px;"></p>
     </div>
 
@@ -181,8 +181,10 @@
           ? '<span class="badge verified">✓ Verified</span>'
           : '<span class="badge pending">⏳ Pending verification</span>';
         document.getElementById('snap-created').textContent = fmtDate(u.created_at);
-        document.getElementById('anonymize_cards').checked = !!u.anonymize_cards;
-        document.getElementById('anon-toggle-track').classList.toggle('on', !!u.anonymize_cards);
+        // Privacy toggle
+        const anonTrack = document.getElementById('anon-toggle-track');
+        anonTrack.dataset.on = u.anonymize_cards ? '1' : '0';
+        anonTrack.querySelector('.toggle-track').classList.toggle('on', !!u.anonymize_cards);
       } catch (ex) {
         console.error(ex);
         window.location.href = '/login';
@@ -269,10 +271,11 @@
 
     // ── Anonymize toggle auto-save ────────────────────────────────────────
     document.getElementById('anon-toggle-track').addEventListener('click', async () => {
-      const cb = document.getElementById('anonymize_cards');
-      const track = document.getElementById('anon-toggle-track');
-      const newVal = !cb.checked;
-      cb.checked = newVal;
+      const wrapper = document.getElementById('anon-toggle-track');
+      const track = wrapper.querySelector('.toggle-track');
+      const wasOn = wrapper.dataset.on === '1';
+      const newVal = !wasOn;
+      wrapper.dataset.on = newVal ? '1' : '0';
       track.classList.toggle('on', newVal);
       const msg = document.getElementById('anon-msg');
       try {
@@ -289,14 +292,14 @@
         } else {
           msg.className = 'msg err';
           msg.textContent = 'Failed to save preference.';
-          cb.checked = !newVal;
-          track.classList.toggle('on', !newVal);
+          wrapper.dataset.on = wasOn ? '1' : '0';
+          track.classList.toggle('on', wasOn);
         }
       } catch {
         msg.className = 'msg err';
         msg.textContent = 'Network error.';
-        cb.checked = !newVal;
-        track.classList.toggle('on', !newVal);
+        wrapper.dataset.on = wasOn ? '1' : '0';
+        track.classList.toggle('on', wasOn);
       }
     });
   </script>
