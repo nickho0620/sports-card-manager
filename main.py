@@ -185,23 +185,24 @@ app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
 @app.get("/", include_in_schema=False)
 def dashboard(request: Request):
-    # Gate the dashboard server-side: you must be signed in AND email-verified
-    # (admins bypass verification). Anything else bounces to /login so an
-    # unverified account can't peek at the app.
+    # Anonymous visitors are allowed to browse the dashboard in read-only
+    # mode — the frontend hides write actions when no user is signed in.
+    # The only case we bounce is a signed-in-but-unverified account, which
+    # shouldn't normally happen since /login blocks unverified sign-ins,
+    # but we keep the guard as a safety net.
     user = _current_user(request)
-    if not user:
-        return RedirectResponse(url="/login", status_code=302)
-    if not user.is_admin and not user.email_verified:
+    if user and not user.is_admin and not user.email_verified:
         return RedirectResponse(url="/login?unverified=1", status_code=302)
     return FileResponse(os.path.join(STATIC_DIR, "index.html"))
 
 
 @app.get("/scanner", include_in_schema=False)
 def scanner(request: Request):
+    # Anonymous visitors can view the scanner page. Actually *using* it
+    # (uploading a card) still hits an authed endpoint, so it's read-only
+    # for guests. Signed-in-but-unverified accounts still bounce.
     user = _current_user(request)
-    if not user:
-        return RedirectResponse(url="/login", status_code=302)
-    if not user.is_admin and not user.email_verified:
+    if user and not user.is_admin and not user.email_verified:
         return RedirectResponse(url="/login?unverified=1", status_code=302)
     return FileResponse(os.path.join(STATIC_DIR, "scanner.html"))
 
@@ -223,6 +224,7 @@ def admin_page():
 
 @app.get("/profile", include_in_schema=False)
 def profile_page(request: Request):
+    # Profile is account-only: anonymous visitors get sent to the login page.
     user = _current_user(request)
     if not user:
         return RedirectResponse(url="/login", status_code=302)
