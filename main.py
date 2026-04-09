@@ -1,5 +1,5 @@
 """
-Card Radar — FastAPI backend
+CardMint — FastAPI backend
 Serves the mobile PWA and REST API.
 """
 from dotenv import load_dotenv
@@ -53,7 +53,7 @@ from image_processor import process_card_scan
 
 # ── App Setup ────────────────────────────────────────────────────────────────
 
-app = FastAPI(title="Card Radar", version="1.0.0")
+app = FastAPI(title="CardMint", version="1.0.0")
 
 app.add_middleware(
     CORSMiddleware,
@@ -169,6 +169,48 @@ def _user_monthly_card_count(db, user_id: str) -> int:
         Card.created_at >= month_start,
     ).count()
 
+
+def _current_month_key() -> str:
+    """Return e.g. '2026-04' for the current UTC month."""
+    return datetime.utcnow().strftime("%Y-%m")
+
+
+def _bump_scan_count(db, user: User) -> int:
+    """Increment (and auto-reset) the user's monthly scan counter. Returns new count."""
+    key = _current_month_key()
+    if user.scans_month_key != key:
+        user.scans_this_month = 0
+        user.scans_month_key = key
+    user.scans_this_month = (user.scans_this_month or 0) + 1
+    db.commit()
+    return user.scans_this_month
+
+
+def _get_scan_count(db, user: User) -> int:
+    """Get the user's scan count for this month (auto-resets)."""
+    key = _current_month_key()
+    if user.scans_month_key != key:
+        return 0
+    return user.scans_this_month or 0
+
+
+def _bump_reprice_count(db, user: User) -> int:
+    """Increment (and auto-reset) the user's monthly reprice counter."""
+    key = _current_month_key()
+    if user.reprices_month_key != key:
+        user.reprices_this_month = 0
+        user.reprices_month_key = key
+    user.reprices_this_month = (user.reprices_this_month or 0) + 1
+    db.commit()
+    return user.reprices_this_month
+
+
+def _get_reprice_count(db, user: User) -> int:
+    key = _current_month_key()
+    if user.reprices_month_key != key:
+        return 0
+    return user.reprices_this_month or 0
+
 # Cloudinary config (optional — falls back to local storage if not set)
 USE_CLOUDINARY = bool(os.getenv("CLOUDINARY_CLOUD_NAME"))
 if USE_CLOUDINARY:
@@ -257,19 +299,26 @@ def user_to_dict(user: User, db=None) -> dict:
         cards_used = _user_card_count(db, user.id)
         monthly_cards_used = _user_monthly_card_count(db, user.id)
     tier = (user.subscription_tier or "free").lower()
-    # Effective limit depends on tier:
+    # Scan counting: use the sticky counter (survives deletions)
+    scans_used = _get_scan_count(db, user) if db else 0
+    reprices_used = _get_reprice_count(db, user) if db else 0
+
+    # Effective scan limit depends on tier:
     #   Free = lifetime cap (card_limit)
     #   Pro = 100/month
     #   Unlimited/admin = unlimited
     if user.is_admin or tier == "unlimited":
         effective_limit = None  # unlimited
         effective_used = cards_used
+        reprice_limit = None
     elif tier == "pro":
         effective_limit = 100
-        effective_used = monthly_cards_used
+        effective_used = scans_used
+        reprice_limit = 50
     else:
         effective_limit = user.card_limit
-        effective_used = cards_used
+        effective_used = scans_used if scans_used > cards_used else cards_used
+        reprice_limit = 0
     return {
         "id": user.id,
         "username": user.username,
@@ -284,8 +333,10 @@ def user_to_dict(user: User, db=None) -> dict:
         "subscription_expires_at": (user.subscription_expires_at.isoformat() + "Z") if user.subscription_expires_at else None,
         "anonymize_cards": bool(user.anonymize_cards),
         "cards_used": effective_used,
-        "monthly_cards_used": monthly_cards_used,
+        "monthly_cards_used": scans_used,
         "total_cards": cards_used,
+        "reprices_used": reprices_used,
+        "reprice_limit": reprice_limit,
         "created_at": (user.created_at.isoformat() + "Z") if user.created_at else None,
     }
 
@@ -348,7 +399,7 @@ def register(body: dict, background_tasks: BackgroundTasks):
         html, text = verification_email_html(username, verify_url)
         print(f"[register] queueing verification email to={email}", flush=True)
         background_tasks.add_task(
-            send_email, email, "Verify your Card Radar account", html, text
+            send_email, email, "Verify your CardMint account", html, text
         )
         print(f"[register] verification email queued for {email}", flush=True)
 
@@ -408,7 +459,7 @@ def resend_verification(request: Request, background_tasks: BackgroundTasks):
         verify_url = f"{get_base_url()}/api/auth/verify-email?token={u.email_verify_token}"
         html, text = verification_email_html(u.username, verify_url)
         background_tasks.add_task(
-            send_email, u.email, "Verify your Card Radar account", html, text
+            send_email, u.email, "Verify your CardMint account", html, text
         )
         return {"status": "sent"}
     finally:
@@ -496,7 +547,7 @@ def resend_verification_public(body: dict, background_tasks: BackgroundTasks):
             verify_url = f"{get_base_url()}/api/auth/verify-email?token={user.email_verify_token}"
             html, text = verification_email_html(user.username, verify_url)
             background_tasks.add_task(
-                send_email, user.email, "Verify your Card Radar account", html, text
+                send_email, user.email, "Verify your CardMint account", html, text
             )
         return {"status": "ok"}
     finally:
@@ -555,7 +606,7 @@ def forgot_password(body: dict, background_tasks: BackgroundTasks):
             reset_url = f"{get_base_url()}/reset-password?token={user.password_reset_token}"
             html, text = password_reset_email_html(user.username, reset_url)
             background_tasks.add_task(
-                send_email, user.email, "Reset your Card Radar password", html, text
+                send_email, user.email, "Reset your CardMint password", html, text
             )
             email_sent = True
 
@@ -711,7 +762,7 @@ def auth_update_me(request: Request, body: dict, background_tasks: BackgroundTas
                 verify_url = f"{get_base_url()}/api/auth/verify-email?token={user.email_verify_token}"
                 html, text = verification_email_html(user.username, verify_url)
                 background_tasks.add_task(
-                    send_email, user.email, "Verify your Card Radar account", html, text
+                    send_email, user.email, "Verify your CardMint account", html, text
                 )
 
         # Password change → requires current password
@@ -998,9 +1049,9 @@ def admin_email_test(request: Request, body: dict):
     to = (body.get("to") or "").strip()
     if not to:
         raise HTTPException(status_code=400, detail="Provide a 'to' address")
-    html = "<p>This is a Card Radar SMTP test email. If you see this, sending works! 🎉</p>"
-    text = "This is a Card Radar SMTP test email. If you see this, sending works!"
-    ok = send_email(to, "Card Radar SMTP test", html, text)
+    html = "<p>This is a CardMint SMTP test email. If you see this, sending works! 🎉</p>"
+    text = "This is a CardMint SMTP test email. If you see this, sending works!"
+    ok = send_email(to, "CardMint SMTP test", html, text)
     return {"ok": ok, "to": to, "diagnostic": smtp_diagnostic()}
 
 
@@ -1459,16 +1510,17 @@ async def upload_card(
     if not front_image and not back_image:
         raise HTTPException(status_code=400, detail="At least one image is required")
 
-    # Enforce per-user card limit:
-    #   Free: lifetime cap (card_limit, default 5)
-    #   Pro:  100 per calendar month (resets on the 1st)
+    # Enforce per-user card limit using sticky counters (survive deletions):
+    #   Free: lifetime cap (card_limit, default 5) — uses scans_this_month
+    #   Pro:  100 per calendar month
     #   Unlimited/Admin: no cap
     db_check = SessionLocal()
     try:
-        tier = (user.subscription_tier or "free").lower()
-        if not user.is_admin and tier != "unlimited":
+        u = db_check.get(User, user.id)
+        tier = (u.subscription_tier or "free").lower()
+        if not u.is_admin and tier != "unlimited":
+            used = _get_scan_count(db_check, u)
             if tier == "pro":
-                used = _user_monthly_card_count(db_check, user.id)
                 limit = 100
                 if used >= limit:
                     raise HTTPException(
@@ -1476,12 +1528,12 @@ async def upload_card(
                         detail=f"Monthly card limit reached ({used}/{limit} this month). Your limit resets on the 1st of next month.",
                     )
             else:
-                # Free tier — lifetime cap
-                used = _user_card_count(db_check, user.id)
-                if used >= user.card_limit:
+                # Free tier — lifetime cap but tracked via sticky counter
+                lifetime = max(used, _user_card_count(db_check, u.id))
+                if lifetime >= u.card_limit:
                     raise HTTPException(
                         status_code=403,
-                        detail=f"Card limit reached ({used}/{user.card_limit}). Upgrade to Pro for 100 cards per month.",
+                        detail=f"Card limit reached ({lifetime}/{u.card_limit}). Upgrade to Pro for 100 cards per month.",
                     )
     finally:
         db_check.close()
@@ -1535,6 +1587,9 @@ async def upload_card(
         is_public=(is_public.lower() in ("true", "1", "yes")),
     )
     db.add(card)
+    # Bump the sticky scan counter so deleted cards still count
+    u = db.get(User, user.id)
+    _bump_scan_count(db, u)
     db.commit()
     db.close()
 
@@ -1575,7 +1630,13 @@ def update_card(request: Request, card_id: str, body: dict):
 
 @app.post("/api/cards/{card_id}/reprice")
 def reprice_card(request: Request, card_id: str, background_tasks: BackgroundTasks):
-    """Trigger a fresh eBay pricing lookup."""
+    """Trigger a fresh eBay pricing lookup.
+
+    Reprice limits by tier:
+      Free = 0 (not allowed)
+      Pro = 50 per calendar month
+      Unlimited/Admin = unlimited
+    """
     user = require_auth(request)
     db = SessionLocal()
     try:
@@ -1584,6 +1645,24 @@ def reprice_card(request: Request, card_id: str, background_tasks: BackgroundTas
             raise HTTPException(status_code=404, detail="Card not found")
         if not user.is_admin and card.owner_id != user.id:
             raise HTTPException(status_code=403, detail="You can only reprice your own cards")
+
+        # Enforce reprice limits
+        u = db.get(User, user.id)
+        tier = (u.subscription_tier or "free").lower()
+        if not u.is_admin:
+            if tier == "free":
+                raise HTTPException(
+                    status_code=403,
+                    detail="Repricing is not available on the Free plan. Upgrade to Pro to reprice cards.",
+                )
+            elif tier == "pro":
+                used = _get_reprice_count(db, u)
+                if used >= 50:
+                    raise HTTPException(
+                        status_code=403,
+                        detail=f"Monthly reprice limit reached ({used}/50). Resets on the 1st of next month.",
+                    )
+                _bump_reprice_count(db, u)
     finally:
         db.close()
     background_tasks.add_task(refresh_pricing, card_id)

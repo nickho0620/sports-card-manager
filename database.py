@@ -118,6 +118,14 @@ class User(Base):
     email_verify_token = Column(String)
     email_verify_sent_at = Column(DateTime)
 
+    # ── Usage tracking ─────────────────────────────────────────────────────
+    # Lifetime counters that survive card deletion so "deleted cards still
+    # count towards the user's monthly scan limit."
+    scans_this_month = Column(Integer, default=0)   # scans in current month
+    scans_month_key = Column(String)                 # "2026-04" — reset trigger
+    reprices_this_month = Column(Integer, default=0)
+    reprices_month_key = Column(String)
+
     # ── Password reset (email-based) ────────────────────────────────────────
     password_reset_token = Column(String)
     password_reset_expires = Column(DateTime)
@@ -179,6 +187,10 @@ def _migrate(eng):
                 "email_verify_sent_at": "TIMESTAMP",
                 "password_reset_token": "VARCHAR",
                 "password_reset_expires": "TIMESTAMP",
+                "scans_this_month": "INTEGER",
+                "scans_month_key": "VARCHAR",
+                "reprices_this_month": "INTEGER",
+                "reprices_month_key": "VARCHAR",
             }
             for col_name, col_type in user_cols.items():
                 if col_name not in existing:

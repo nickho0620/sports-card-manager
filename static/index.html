@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Card Radar</title>
+  <title>CardMint</title>
   <link rel="stylesheet" href="/static/styles.css">
   <style>
     body { background: #0f172a; color: #f1f5f9; }
@@ -190,7 +190,7 @@
     <header style="padding:14px 24px; display:flex; align-items:center; justify-content:space-between; gap:16px; background:#0f172a;">
       <div style="display:flex; align-items:center; gap:14px; min-width:0;">
         <a href="/" style="display:flex; align-items:center; text-decoration:none;">
-          <img src="/static/logo.png" alt="Card Radar" style="height:120px; width:auto; flex-shrink:0;">
+          <img src="/static/logo.png" alt="CardMint" style="height:120px; width:auto; flex-shrink:0;">
         </a>
         <p style="font-size:12px; color:#94a3b8; margin:0;" id="header-stats">Loading…</p>
       </div>
@@ -329,7 +329,7 @@
       <section class="info-hero">
         <span class="badge-pill">📖 How To Use</span>
         <h1>Scan smarter,<br>get better results.</h1>
-        <p>A few simple habits will give you the best card identification and pricing accuracy Card Radar can produce. Here's everything you need to know before you start scanning.</p>
+        <p>A few simple habits will give you the best card identification and pricing accuracy CardMint can produce. Here's everything you need to know before you start scanning.</p>
       </section>
 
       <!-- Best practices -->
@@ -404,7 +404,7 @@
       <div class="info-cta" style="border-color: rgba(251, 191, 36, 0.35); background: linear-gradient(135deg, rgba(251, 191, 36, 0.08), rgba(249, 115, 22, 0.05));">
         <h3 style="color:#fcd34d;">⚠️ A note on accuracy</h3>
         <p style="max-width:680px; margin:0 auto;">
-          Card Radar's identification is powered by AI and, while generally reliable, it is <strong>not 100% perfect</strong>. Years, parallels, and card numbers are the fields most commonly misread, especially on older cards or photos with poor lighting. Value estimates are approximations based on recent market data and should not be treated as professional appraisals. Always double-check high-value cards against official grading services and recent sold comps before buying, selling, or insuring them. You can edit any field on a card after scanning — if something looks wrong, fix it in one click.
+          CardMint's identification is powered by AI and, while generally reliable, it is <strong>not 100% perfect</strong>. Years, parallels, and card numbers are the fields most commonly misread, especially on older cards or photos with poor lighting. Value estimates are approximations based on recent market data and should not be treated as professional appraisals. Always double-check high-value cards against official grading services and recent sold comps before buying, selling, or insuring them. You can edit any field on a card after scanning — if something looks wrong, fix it in one click.
         </p>
       </div>
 
@@ -425,7 +425,7 @@
     <div class="info-wrap">
       <!-- Hero -->
       <section class="info-hero">
-        <span class="badge-pill">📡 Card Radar</span>
+        <span class="badge-pill">🪙 CardMint</span>
         <h1>Your collection,<br>finally organized.</h1>
         <p>Snap a photo of any sports card and get instant identification, real eBay pricing, and a beautifully organized digital collection — no manual data entry required.</p>
       </section>
@@ -1322,13 +1322,19 @@
 
     async function saveAllDetails(id) {
       const body = gatherEditFields();
-      await fetch('/api/cards/' + id, {
+      const res = await fetch('/api/cards/' + id, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body)
       });
-      showToast('Details saved');
-      loadCards();
+      if (res.ok) {
+        showToast('Details saved');
+        loadCards();
+        closeModalDirect();
+      } else {
+        const data = await res.json().catch(() => ({}));
+        showToast(data.detail || 'Save failed');
+      }
     }
 
     async function saveAndReprice(id) {
@@ -1338,7 +1344,13 @@
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body)
       });
-      await fetch('/api/cards/' + id + '/reprice', { method: 'POST' });
+      const repriceRes = await fetch('/api/cards/' + id + '/reprice', { method: 'POST' });
+      if (!repriceRes.ok) {
+        const err = await repriceRes.json().catch(() => ({}));
+        showToast(err.detail || 'Reprice failed');
+        loadCards();
+        return;
+      }
 
       // Show repricing indicator in the price box
       const priceBox = document.querySelector('#price-box');

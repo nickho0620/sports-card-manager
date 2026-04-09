@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Admin Console — Card Radar</title>
+  <title>Admin Console — CardMint</title>
   <link rel="stylesheet" href="/static/styles.css">
   <style>
     body { background:#0f172a; color:#f1f5f9; min-height:100vh; }
@@ -558,8 +558,8 @@
         const res = await fetch('/api/admin/analytics?range=' + range);
         if (!res.ok) return;
         const data = await res.json();
-        drawBarChart('canvas-users', data.users_series, '#3b82f6');
-        drawBarChart('canvas-cards', data.cards_series, '#22c55e');
+        drawLineChart('canvas-users', data.users_series, '#3b82f6');
+        drawLineChart('canvas-cards', data.cards_series, '#22c55e');
         document.getElementById('chart-users-total').textContent =
           `Total new users in period: ${data.users_series.reduce((s, d) => s + d.count, 0)}`;
         document.getElementById('chart-cards-total').textContent =
@@ -570,7 +570,7 @@
       }
     }
 
-    function drawBarChart(canvasId, series, color) {
+    function drawLineChart(canvasId, series, color) {
       const canvas = document.getElementById(canvasId);
       const ctx = canvas.getContext('2d');
       const dpr = window.devicePixelRatio || 1;
@@ -593,21 +593,20 @@
       }
 
       const maxCount = Math.max(1, ...series.map(d => d.count));
-      const barGap = 2;
       const leftPad = 36;
       const bottomPad = 40;
+      const topPad = 20;
       const chartW = W - leftPad;
-      const chartH = H - bottomPad;
-      const barW = Math.max(2, (chartW / series.length) - barGap);
+      const chartH = H - bottomPad - topPad;
 
-      // Y-axis labels
+      // Y-axis gridlines + labels
       ctx.fillStyle = '#64748b';
       ctx.font = '10px sans-serif';
       ctx.textAlign = 'right';
       const ySteps = 4;
       for (let i = 0; i <= ySteps; i++) {
         const val = Math.round((maxCount / ySteps) * i);
-        const y = chartH - (chartH * i / ySteps);
+        const y = topPad + chartH - (chartH * i / ySteps);
         ctx.fillText(val, leftPad - 6, y + 3);
         ctx.strokeStyle = '#1e293b';
         ctx.lineWidth = 1;
@@ -617,35 +616,71 @@
         ctx.stroke();
       }
 
-      // Bars
-      series.forEach((d, i) => {
-        const barH = (d.count / maxCount) * chartH;
-        const x = leftPad + i * (barW + barGap);
-        const y = chartH - barH;
+      // Compute points
+      const points = series.map((d, i) => ({
+        x: leftPad + (series.length === 1 ? chartW / 2 : (i / (series.length - 1)) * chartW),
+        y: topPad + chartH - (d.count / maxCount) * chartH,
+        count: d.count,
+        label: d.label,
+      }));
 
-        ctx.fillStyle = color;
-        ctx.globalAlpha = 0.85;
+      // Gradient fill under the line
+      const gradient = ctx.createLinearGradient(0, topPad, 0, topPad + chartH);
+      gradient.addColorStop(0, color + '40');
+      gradient.addColorStop(1, color + '05');
+      ctx.beginPath();
+      ctx.moveTo(points[0].x, topPad + chartH);
+      points.forEach(p => ctx.lineTo(p.x, p.y));
+      ctx.lineTo(points[points.length - 1].x, topPad + chartH);
+      ctx.closePath();
+      ctx.fillStyle = gradient;
+      ctx.fill();
+
+      // Line
+      ctx.beginPath();
+      ctx.moveTo(points[0].x, points[0].y);
+      for (let i = 1; i < points.length; i++) {
+        ctx.lineTo(points[i].x, points[i].y);
+      }
+      ctx.strokeStyle = color;
+      ctx.lineWidth = 2.5;
+      ctx.lineJoin = 'round';
+      ctx.stroke();
+
+      // Dots + value labels
+      points.forEach((p, i) => {
+        // Dot
         ctx.beginPath();
-        const r = Math.min(3, barW / 2);
-        ctx.moveTo(x, chartH);
-        ctx.lineTo(x, y + r);
-        ctx.quadraticCurveTo(x, y, x + r, y);
-        ctx.lineTo(x + barW - r, y);
-        ctx.quadraticCurveTo(x + barW, y, x + barW, y + r);
-        ctx.lineTo(x + barW, chartH);
-        ctx.closePath();
+        ctx.arc(p.x, p.y, 3.5, 0, Math.PI * 2);
+        ctx.fillStyle = color;
         ctx.fill();
-        ctx.globalAlpha = 1;
+        ctx.strokeStyle = '#0f172a';
+        ctx.lineWidth = 1.5;
+        ctx.stroke();
 
-        // X label (show selectively to avoid overlap)
-        if (series.length <= 31 || i % Math.ceil(series.length / 15) === 0) {
+        // Value label above dot (show selectively)
+        const showLabel = series.length <= 15 || p.count > 0;
+        const skipDense = series.length > 15 && i % Math.ceil(series.length / 12) !== 0 && p.count === 0;
+        if (showLabel && !skipDense) {
+          ctx.fillStyle = '#e2e8f0';
+          ctx.font = 'bold 10px sans-serif';
+          ctx.textAlign = 'center';
+          ctx.fillText(p.count, p.x, p.y - 8);
+        }
+      });
+
+      // X-axis labels
+      const maxLabels = 15;
+      const step = Math.max(1, Math.ceil(series.length / maxLabels));
+      points.forEach((p, i) => {
+        if (i % step === 0 || i === points.length - 1) {
           ctx.fillStyle = '#64748b';
           ctx.font = '9px sans-serif';
           ctx.textAlign = 'center';
           ctx.save();
-          ctx.translate(x + barW / 2, chartH + 12);
-          ctx.rotate(-0.5);
-          ctx.fillText(d.label, 0, 0);
+          ctx.translate(p.x, topPad + chartH + 14);
+          ctx.rotate(-0.4);
+          ctx.fillText(p.label, 0, 0);
           ctx.restore();
         }
       });

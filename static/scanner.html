@@ -21,6 +21,9 @@
       background:#1e293b; border:2px solid #334155; border-radius:16px; cursor:pointer; transition:all .15s; flex:1; }
     .source-btn:hover { border-color:#3b82f6; background:#1e293b; }
     .source-btn:active { background:#0f172a; }
+    .ptoggle { position:relative; }
+    .ptoggle.pton { background:#3b82f6 !important; }
+    .ptoggle.pton > div { transform:translateX(20px) !important; }
   </style>
 </head>
 <body class="bg-slate-900 text-white min-h-screen flex flex-col">
@@ -172,7 +175,9 @@
     ];
 
     function setDropdownHtml() {
-      const savedSet = sessionStorage.getItem('cardradar_set_hint') || 'Unknown';
+      const savedSet = sessionStorage.getItem('cardmint_set_hint') || 'Unknown';
+      const savedCustom = sessionStorage.getItem('cardmint_set_custom') || '';
+      const isOther = savedSet === 'Other (type below)';
       const opts = COMMON_SETS.map(s => {
         if (s.startsWith('──')) return `<option disabled style="font-weight:bold;color:#60a5fa;">${s}</option>`;
         const sel = s === savedSet ? ' selected' : '';
@@ -181,20 +186,35 @@
       return `
         <div style="width:100%; margin-top:4px;">
           <label style="display:block;font-size:11px;color:#94a3b8;margin-bottom:4px;font-weight:600;">Card Set (helps AI accuracy)</label>
-          <select id="set-hint" onchange="sessionStorage.setItem('cardradar_set_hint', this.value)"
+          <select id="set-hint" onchange="onSetHintChange(this.value)"
             style="width:100%;padding:10px 12px;border-radius:10px;border:1px solid #334155;background:#1e293b;color:#f1f5f9;font-size:14px;outline:none;">
             ${opts}
           </select>
+          <input type="text" id="set-hint-custom" placeholder="Type set name..."
+            value="${isOther ? savedCustom : ''}"
+            oninput="sessionStorage.setItem('cardmint_set_custom', this.value)"
+            style="width:100%;padding:10px 12px;border-radius:10px;border:1px solid #334155;background:#1e293b;color:#f1f5f9;font-size:14px;outline:none;margin-top:6px;display:${isOther ? 'block' : 'none'};">
         </div>`;
     }
 
+    function onSetHintChange(val) {
+      sessionStorage.setItem('cardmint_set_hint', val);
+      const custom = document.getElementById('set-hint-custom');
+      if (custom) {
+        custom.style.display = val === 'Other (type below)' ? 'block' : 'none';
+        if (val !== 'Other (type below)') custom.value = '';
+      }
+    }
+
     function publicToggleHtml() {
-      const savedPublic = sessionStorage.getItem('cardradar_is_public') === 'true';
+      const savedPublic = sessionStorage.getItem('cardmint_is_public') === 'true';
       return `
-        <label style="display:flex; align-items:center; gap:8px; margin-top:4px; font-size:13px; color:#cbd5e1; cursor:pointer;">
-          <input type="checkbox" id="is-public-toggle" ${savedPublic ? 'checked' : ''}
-            onchange="sessionStorage.setItem('cardradar_is_public', this.checked)"
-            style="width:18px;height:18px;accent-color:#3b82f6;">
+        <label style="display:flex; align-items:center; gap:10px; margin-top:4px; font-size:13px; color:#cbd5e1; cursor:pointer;"
+          onclick="const cb=document.getElementById('is-public-toggle');cb.checked=!cb.checked;sessionStorage.setItem('cardmint_is_public',cb.checked);this.querySelector('.ptoggle').classList.toggle('pton',cb.checked);">
+          <div class="ptoggle ${savedPublic ? 'pton' : ''}" style="position:relative;width:44px;height:24px;background:${savedPublic ? '#3b82f6' : '#475569'};border-radius:12px;transition:background .2s;flex-shrink:0;">
+            <div style="position:absolute;top:2px;left:2px;width:20px;height:20px;background:#fff;border-radius:50%;transition:transform .2s;${savedPublic ? 'transform:translateX(20px);' : ''}"></div>
+          </div>
+          <input type="checkbox" id="is-public-toggle" ${savedPublic ? 'checked' : ''} style="display:none;">
           <span>Make this card public (visible in Card Collection)</span>
         </label>`;
     }
@@ -463,8 +483,11 @@
         if (frontFile) form.append('front_image', frontFile, 'front.jpg');
         if (backFile)  form.append('back_image',  backFile,  'back.jpg');
         // Send set hint and public toggle
-        const setHint = document.getElementById('set-hint')?.value || sessionStorage.getItem('cardradar_set_hint') || '';
-        const isPublic = document.getElementById('is-public-toggle')?.checked || sessionStorage.getItem('cardradar_is_public') === 'true';
+        let setHint = document.getElementById('set-hint')?.value || sessionStorage.getItem('cardmint_set_hint') || '';
+        if (setHint === 'Other (type below)') {
+          setHint = document.getElementById('set-hint-custom')?.value || sessionStorage.getItem('cardmint_set_custom') || '';
+        }
+        const isPublic = document.getElementById('is-public-toggle')?.checked || sessionStorage.getItem('cardmint_is_public') === 'true';
         form.append('set_hint', setHint);
         form.append('is_public', isPublic ? 'true' : 'false');
         const url = useScanMode ? `${API_BASE}/api/cards/upload?scan_mode=true` : `${API_BASE}/api/cards/upload`;

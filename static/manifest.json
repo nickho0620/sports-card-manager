@@ -1,6 +1,6 @@
 {
-  "name": "Card Radar",
-  "short_name": "Card Radar",
+  "name": "CardMint",
+  "short_name": "CardMint",
   "start_url": "/scanner",
   "display": "standalone",
   "background_color": "#0f172a",
