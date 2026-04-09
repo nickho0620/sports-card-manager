@@ -975,6 +975,55 @@ def admin_email_test(request: Request, body: dict):
     return {"ok": ok, "to": to, "diagnostic": smtp_diagnostic()}
 
 
+@app.get("/api/admin/analytics")
+def admin_analytics(request: Request, time_range: str = Query(default="30", alias="range")):
+    """Return daily counts of new users and new cards for the given range.
+    range values: '7', '30', '90', '365', 'all'."""
+    require_admin(request)
+    db = SessionLocal()
+    try:
+        from sqlalchemy import func, cast, Date
+        today = datetime.utcnow().date()
+
+        if time_range == "all":
+            start_date = None
+        else:
+            days = int(time_range)
+            start_date = today - timedelta(days=days - 1)
+
+        def daily_series(model, date_col):
+            q = db.query(
+                cast(date_col, Date).label("day"),
+                func.count().label("cnt"),
+            )
+            if start_date:
+                q = q.filter(date_col >= datetime.combine(start_date, datetime.min.time()))
+            q = q.group_by("day").order_by("day")
+            rows = q.all()
+            return {str(r.day): r.cnt for r in rows}
+
+        user_data = daily_series(User, User.created_at)
+        card_data = daily_series(Card, Card.created_at)
+
+        # Fill in missing days
+        if start_date:
+            all_days = [(start_date + timedelta(days=i)) for i in range((today - start_date).days + 1)]
+        else:
+            # Use union of all dates present
+            all_day_strs = sorted(set(list(user_data.keys()) + list(card_data.keys())))
+            all_days = [datetime.strptime(d, "%Y-%m-%d").date() for d in all_day_strs] if all_day_strs else []
+
+        users_series = [{"label": d.strftime("%m/%d"), "count": user_data.get(str(d), 0)} for d in all_days]
+        cards_series = [{"label": d.strftime("%m/%d"), "count": card_data.get(str(d), 0)} for d in all_days]
+
+        return {
+            "users_series": users_series,
+            "cards_series": cards_series,
+        }
+    finally:
+        db.close()
+
+
 # ── Subscription (stub) ─────────────────────────────────────────────────────
 
 @app.post("/api/subscription/upgrade")

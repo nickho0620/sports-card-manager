@@ -63,6 +63,7 @@
       <button class="tab active" onclick="switchTab('users')" id="tab-users">👥 Users</button>
       <button class="tab" onclick="switchTab('cards')" id="tab-cards">🃏 Cards</button>
       <button class="tab" onclick="switchTab('create')" id="tab-create">➕ New User</button>
+      <button class="tab" onclick="switchTab('analytics')" id="tab-analytics">📊 Analytics</button>
     </div>
 
     <!-- USERS TAB -->
@@ -171,6 +172,36 @@
         </div>
       </form>
     </div>
+
+    <!-- ANALYTICS TAB -->
+    <div id="panel-analytics" class="panel hidden">
+      <div class="flex items-center justify-between mb-4 flex-wrap gap-3">
+        <h2 class="font-bold text-lg">Growth Analytics</h2>
+        <select id="analytics-range" class="input" onchange="loadAnalytics()" style="min-width:160px;">
+          <option value="7">Last 7 days</option>
+          <option value="30" selected>Last 30 days</option>
+          <option value="90">Last 90 days</option>
+          <option value="365">Last year</option>
+          <option value="all">All time</option>
+        </select>
+      </div>
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+        <div>
+          <h3 class="text-sm font-semibold text-slate-400 uppercase tracking-wider mb-2">New Users Over Time</h3>
+          <div id="chart-users" style="position:relative; height:260px; background:#0f172a; border-radius:12px; padding:16px; border:1px solid #334155;">
+            <canvas id="canvas-users" style="width:100%; height:100%;"></canvas>
+          </div>
+          <p class="text-xs text-slate-500 mt-2" id="chart-users-total"></p>
+        </div>
+        <div>
+          <h3 class="text-sm font-semibold text-slate-400 uppercase tracking-wider mb-2">New Cards Over Time</h3>
+          <div id="chart-cards" style="position:relative; height:260px; background:#0f172a; border-radius:12px; padding:16px; border:1px solid #334155;">
+            <canvas id="canvas-cards" style="width:100%; height:100%;"></canvas>
+          </div>
+          <p class="text-xs text-slate-500 mt-2" id="chart-cards-total"></p>
+        </div>
+      </div>
+    </div>
   </main>
 
   <!-- Toast -->
@@ -250,11 +281,12 @@
 
     // ── Tab switching ───────────────────────────────────────────────────────
     function switchTab(tab) {
-      ['users','cards','create'].forEach(t => {
+      ['users','cards','create','analytics'].forEach(t => {
         document.getElementById('tab-' + t).classList.toggle('active', t === tab);
         document.getElementById('panel-' + t).classList.toggle('hidden', t !== tab);
       });
       if (tab === 'cards' && allCards.length === 0) loadCardsTab();
+      if (tab === 'analytics') loadAnalytics();
     }
 
     // ── Users tab ───────────────────────────────────────────────────────────
@@ -515,6 +547,108 @@
       t.textContent = msg;
       t.style.opacity = '1';
       setTimeout(() => { t.style.opacity = '0'; }, 2200);
+    }
+
+    // ── Analytics ────────────────────────────────────────────────────────────
+    let analyticsLoaded = false;
+
+    async function loadAnalytics() {
+      const range = document.getElementById('analytics-range').value;
+      try {
+        const res = await fetch('/api/admin/analytics?range=' + range);
+        if (!res.ok) return;
+        const data = await res.json();
+        drawBarChart('canvas-users', data.users_series, '#3b82f6');
+        drawBarChart('canvas-cards', data.cards_series, '#22c55e');
+        document.getElementById('chart-users-total').textContent =
+          `Total new users in period: ${data.users_series.reduce((s, d) => s + d.count, 0)}`;
+        document.getElementById('chart-cards-total').textContent =
+          `Total new cards in period: ${data.cards_series.reduce((s, d) => s + d.count, 0)}`;
+        analyticsLoaded = true;
+      } catch (e) {
+        console.error('Analytics load failed', e);
+      }
+    }
+
+    function drawBarChart(canvasId, series, color) {
+      const canvas = document.getElementById(canvasId);
+      const ctx = canvas.getContext('2d');
+      const dpr = window.devicePixelRatio || 1;
+      const rect = canvas.parentElement.getBoundingClientRect();
+      canvas.width = (rect.width - 32) * dpr;
+      canvas.height = (rect.height - 32) * dpr;
+      canvas.style.width = (rect.width - 32) + 'px';
+      canvas.style.height = (rect.height - 32) + 'px';
+      ctx.scale(dpr, dpr);
+      const W = rect.width - 32;
+      const H = rect.height - 32;
+      ctx.clearRect(0, 0, W, H);
+
+      if (!series.length) {
+        ctx.fillStyle = '#475569';
+        ctx.font = '13px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.fillText('No data for this period', W / 2, H / 2);
+        return;
+      }
+
+      const maxCount = Math.max(1, ...series.map(d => d.count));
+      const barGap = 2;
+      const leftPad = 36;
+      const bottomPad = 40;
+      const chartW = W - leftPad;
+      const chartH = H - bottomPad;
+      const barW = Math.max(2, (chartW / series.length) - barGap);
+
+      // Y-axis labels
+      ctx.fillStyle = '#64748b';
+      ctx.font = '10px sans-serif';
+      ctx.textAlign = 'right';
+      const ySteps = 4;
+      for (let i = 0; i <= ySteps; i++) {
+        const val = Math.round((maxCount / ySteps) * i);
+        const y = chartH - (chartH * i / ySteps);
+        ctx.fillText(val, leftPad - 6, y + 3);
+        ctx.strokeStyle = '#1e293b';
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(leftPad, y);
+        ctx.lineTo(W, y);
+        ctx.stroke();
+      }
+
+      // Bars
+      series.forEach((d, i) => {
+        const barH = (d.count / maxCount) * chartH;
+        const x = leftPad + i * (barW + barGap);
+        const y = chartH - barH;
+
+        ctx.fillStyle = color;
+        ctx.globalAlpha = 0.85;
+        ctx.beginPath();
+        const r = Math.min(3, barW / 2);
+        ctx.moveTo(x, chartH);
+        ctx.lineTo(x, y + r);
+        ctx.quadraticCurveTo(x, y, x + r, y);
+        ctx.lineTo(x + barW - r, y);
+        ctx.quadraticCurveTo(x + barW, y, x + barW, y + r);
+        ctx.lineTo(x + barW, chartH);
+        ctx.closePath();
+        ctx.fill();
+        ctx.globalAlpha = 1;
+
+        // X label (show selectively to avoid overlap)
+        if (series.length <= 31 || i % Math.ceil(series.length / 15) === 0) {
+          ctx.fillStyle = '#64748b';
+          ctx.font = '9px sans-serif';
+          ctx.textAlign = 'center';
+          ctx.save();
+          ctx.translate(x + barW / 2, chartH + 12);
+          ctx.rotate(-0.5);
+          ctx.fillText(d.label, 0, 0);
+          ctx.restore();
+        }
+      });
     }
 
     init();
