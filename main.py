@@ -191,9 +191,12 @@ def dashboard():
 
 
 @app.get("/scanner", include_in_schema=False)
-def scanner():
-    # Scanner page is public. Actually *using* it (uploading a card)
-    # still hits an authed endpoint, so it's read-only for guests.
+def scanner(request: Request):
+    # Scanner requires at least a signed-in free account. Guests get
+    # bounced to the login page with a note telling them why.
+    user = _current_user(request)
+    if not user:
+        return RedirectResponse(url="/login?scanner=1", status_code=302)
     return FileResponse(os.path.join(STATIC_DIR, "scanner.html"))
 
 
