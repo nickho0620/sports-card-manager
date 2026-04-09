@@ -224,13 +224,25 @@
   </div>
 
   <!-- Filters & Search (only shown on cards views) -->
-  <div id="search-bar" class="px-6 py-4 flex flex-col sm:flex-row gap-3 border-b border-slate-800">
-    <input
-      id="search-input"
-      type="text"
-      placeholder="Search player, brand, set, team…"
-      class="flex-1 bg-slate-800 border border-slate-700 rounded-xl px-4 py-2 text-sm outline-none focus:border-blue-500 transition-colors"
-    >
+  <div id="search-bar" class="px-6 py-4 flex flex-col gap-3 border-b border-slate-800">
+    <div class="flex flex-col sm:flex-row gap-3">
+      <input
+        id="search-input"
+        type="text"
+        placeholder="Search player, brand, set, team, owner, card #…"
+        class="flex-1 bg-slate-800 border border-slate-700 rounded-xl px-4 py-2 text-sm outline-none focus:border-blue-500 transition-colors"
+      >
+      <select id="sort-select" style="background:#1e293b; border:1px solid #334155; color:#f1f5f9; padding:8px 12px; border-radius:10px; font-size:13px; outline:none; min-width:160px;">
+        <option value="newest">Newest First</option>
+        <option value="oldest">Oldest First</option>
+        <option value="price-high">Price: High → Low</option>
+        <option value="price-low">Price: Low → High</option>
+        <option value="player-az">Player: A → Z</option>
+        <option value="player-za">Player: Z → A</option>
+        <option value="year-new">Year: Newest</option>
+        <option value="year-old">Year: Oldest</option>
+      </select>
+    </div>
     <div class="flex gap-2 flex-wrap">
       <button class="filter-btn active" data-status="">All</button>
       <button class="filter-btn" data-status="complete">Complete</button>
@@ -634,6 +646,7 @@
     let allCards = [];
     let currentFilter = '';
     let currentSearch = '';
+    let currentSort = 'newest';
     let pollTimer = null;
     let currentUser = null;          // logged-in user object (or null)
     let isAdmin = false;              // shorthand for currentUser?.is_admin
@@ -902,6 +915,21 @@
 
     // ── Data loading ─────────────────────────────────────────────────────────
 
+    function sortCards(cards) {
+      const sorted = [...cards];
+      switch (currentSort) {
+        case 'oldest':     sorted.sort((a,b) => (a.created_at||'').localeCompare(b.created_at||'')); break;
+        case 'price-high': sorted.sort((a,b) => (b.estimated_price||0) - (a.estimated_price||0)); break;
+        case 'price-low':  sorted.sort((a,b) => (a.estimated_price||0) - (b.estimated_price||0)); break;
+        case 'player-az':  sorted.sort((a,b) => (a.player_name||'').localeCompare(b.player_name||'')); break;
+        case 'player-za':  sorted.sort((a,b) => (b.player_name||'').localeCompare(a.player_name||'')); break;
+        case 'year-new':   sorted.sort((a,b) => (b.year||0) - (a.year||0)); break;
+        case 'year-old':   sorted.sort((a,b) => (a.year||0) - (b.year||0)); break;
+        default:           sorted.sort((a,b) => (b.created_at||'').localeCompare(a.created_at||'')); break;
+      }
+      return sorted;
+    }
+
     async function loadCards() {
       const params = new URLSearchParams({ limit: 200 });
       if (currentSearch) params.set('search', currentSearch);
@@ -913,7 +941,7 @@
       // Always pull header stats from the user-scoped endpoint so the
       // header shows YOUR collection regardless of which view is active.
       refreshHeaderStats();
-      renderGrid(data.cards);
+      renderGrid(sortCards(data.cards));
       // Poll if any cards are still processing
       const pending = data.cards.some(c => ['pending','analyzing','pricing'].includes(c.status));
       if (pending) {
@@ -1466,6 +1494,12 @@
         currentSearch = e.target.value.trim();
         loadCards();
       }, 300);
+    });
+
+    document.getElementById('sort-select').addEventListener('change', e => {
+      currentSort = e.target.value;
+      // Re-sort already-loaded cards without a new fetch
+      renderGrid(sortCards(allCards));
     });
 
     // ── Init ─────────────────────────────────────────────────────────────────

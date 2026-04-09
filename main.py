@@ -1218,6 +1218,9 @@ def list_cards(
                 q = q.filter(Card.is_public == True)  # noqa: E712
         if search:
             like = f"%{search}%"
+            # Also search card_number and owner username
+            from sqlalchemy import exists, select
+            owner_sub = db.query(User.id).filter(User.username.ilike(like)).subquery()
             q = q.filter(
                 or_(
                     Card.player_name.ilike(like),
@@ -1225,6 +1228,8 @@ def list_cards(
                     Card.set_name.ilike(like),
                     Card.team.ilike(like),
                     Card.parallel_name.ilike(like),
+                    Card.card_number.ilike(like),
+                    Card.owner_id.in_(select(owner_sub)),
                 )
             )
         if status:
