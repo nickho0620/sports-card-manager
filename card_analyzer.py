@@ -270,7 +270,8 @@ def _verify_with_ebay(client, front_content: dict, back_content: dict,
         return None
 
 
-def analyze_card(front_path: str, back_path: str, retries: int = 3) -> dict:
+def analyze_card(front_path: str, back_path: str, retries: int = 3,
+                  set_hint: str | None = None) -> dict:
     """
     Analyze a card's front and back images with Claude Vision.
     Two-pass process:
@@ -278,6 +279,8 @@ def analyze_card(front_path: str, back_path: str, retries: int = 3) -> dict:
       2. Web verification — search eBay for the card, then re-examine
          images against known parallels/variants from real listings
     Accepts local file paths or URLs (e.g. Cloudinary).
+    ``set_hint`` is an optional user-provided set name (e.g. "Topps Chrome")
+    that primes the prompt so the AI can narrow down the year/parallel.
     Returns a dict of card metadata.
     """
     api_key = os.getenv("ANTHROPIC_API_KEY")
@@ -290,11 +293,22 @@ def analyze_card(front_path: str, back_path: str, retries: int = 3) -> dict:
     front_content = _make_image_content(front_path)
     back_content = _make_image_content(back_path)
 
+    # Build the prompt — append a set hint if the user provided one
+    prompt_text = ANALYSIS_PROMPT
+    if set_hint and set_hint.strip().lower() not in ("", "unknown"):
+        prompt_text += (
+            f"\n\nIMPORTANT HINT FROM THE USER: The user has indicated this card "
+            f"is from the **{set_hint.strip()}** set. Use this as a strong prior "
+            f"when identifying the set_name, brand, and year. Still verify against "
+            f"the copyright text and visual cues — if the card clearly contradicts "
+            f"the hint, trust the physical evidence."
+        )
+
     # Pass 1 — Initial analysis
     result = _call_claude(
         client, CLAUDE_MODEL, 1024,
         [
-            {"type": "text", "text": ANALYSIS_PROMPT},
+            {"type": "text", "text": prompt_text},
             front_content,
             back_content,
         ],

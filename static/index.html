@@ -1123,6 +1123,7 @@
           ${editField('Print Run', 'print_run', card.print_run, '25, 50, 99...')}
           ${editToggle('Alternate Jersey', 'has_alternate_jersey', card.has_alternate_jersey, 'jersey_description', card.jersey_description)}
           ${editToggle('Short Print', 'is_short_print', card.is_short_print)}
+          ${editToggle('Public (visible in Card Collection)', 'is_public', card.is_public)}
           ${editField('Notable Features', 'notable_features', card.notable_features, 'Error card, SSP...')}
           ${editable
             ? `<div class="py-1.5 border-b border-slate-700 text-sm">

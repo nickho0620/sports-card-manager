@@ -31,7 +31,7 @@ from datetime import timedelta
 import aiofiles
 import cloudinary
 import cloudinary.uploader
-from fastapi import BackgroundTasks, Cookie, FastAPI, File, HTTPException, Query, Request, UploadFile
+from fastapi import BackgroundTasks, Cookie, FastAPI, File, Form, HTTPException, Query, Request, UploadFile
 from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, RedirectResponse
@@ -255,6 +255,7 @@ def user_to_dict(user: User, db=None) -> dict:
         "card_limit": user.card_limit,
         "subscription_tier": user.subscription_tier,
         "subscription_expires_at": (user.subscription_expires_at.isoformat() + "Z") if user.subscription_expires_at else None,
+        "anonymize_cards": bool(user.anonymize_cards),
         "cards_used": cards_used,
         "created_at": (user.created_at.isoformat() + "Z") if user.created_at else None,
     }
@@ -658,6 +659,8 @@ def auth_update_me(request: Request, body: dict, background_tasks: BackgroundTas
             user.last_name = ln
         if "phone" in body:
             user.phone = (body.get("phone") or "").strip() or None
+        if "anonymize_cards" in body:
+            user.anonymize_cards = bool(body["anonymize_cards"])
 
         # Email change → requires re-verification
         if "email" in body:
@@ -1065,6 +1068,9 @@ def card_to_dict(card: Card, db=None) -> dict:
         "graded_low": card.graded_low,
         "graded_high": card.graded_high,
         "graded_num_sales": card.graded_num_sales,
+        # Privacy & hints
+        "is_public": bool(card.is_public),
+        "set_hint": card.set_hint,
         # Meta
         "notes": card.notes,
     }
@@ -1073,7 +1079,7 @@ def card_to_dict(card: Card, db=None) -> dict:
 # ── Background Processing ────────────────────────────────────────────────────
 
 def process_card(card_id: str):
-    """Analyze card with Gemini, then fetch eBay pricing. Runs in thread pool."""
+    """Analyze card with Claude, then fetch eBay pricing. Runs in thread pool."""
     db = SessionLocal()
     try:
         card = db.get(Card, card_id)
@@ -1085,7 +1091,10 @@ def process_card(card_id: str):
         db.commit()
 
         try:
-            analysis = analyze_card(card.front_image_path, card.back_image_path)
+            analysis = analyze_card(
+                card.front_image_path, card.back_image_path,
+                set_hint=card.set_hint,
+            )
             # Map analysis fields onto the card model
             field_map = {
                 "player_name", "year", "brand", "set_name", "subset", "insert_set",
@@ -1188,17 +1197,25 @@ def list_cards(
     limit: int = Query(default=60, le=200),
     offset: int = Query(default=0),
 ):
-    """List all cards with optional search + status filter. owner='mine' restricts to current user."""
+    """List cards. The 'Card Collection' (all) view only returns public cards
+    unless the viewer is an admin. The 'My Collection' (mine) view returns all
+    of the user's own cards regardless of is_public."""
     db = SessionLocal()
     try:
+        user = _current_user(request)
         q = db.query(Card)
+        is_mine = False
         if owner == "mine":
-            user = _current_user(request)
             if not user:
                 raise HTTPException(status_code=401, detail="Login required")
             q = q.filter(Card.owner_id == user.id)
+            is_mine = True
         elif owner:
             q = q.filter(Card.owner_id == owner)
+        else:
+            # "Card Collection" — public cards only (admins see everything)
+            if not (user and user.is_admin):
+                q = q.filter(Card.is_public == True)  # noqa: E712
         if search:
             like = f"%{search}%"
             q = q.filter(
@@ -1216,17 +1233,38 @@ def list_cards(
         total = q.count()
         cards = q.order_by(Card.created_at.desc()).offset(offset).limit(limit).all()
 
-        # Summary stats (unfiltered)
-        all_complete = db.query(Card).filter(Card.status == "complete").all()
-        total_value = sum(c.estimated_price for c in all_complete if c.estimated_price)
+        # Build card dicts, anonymizing owner when the user has that preference
+        card_dicts = []
+        # Cache owner anonymize preference to avoid repeated lookups
+        _anon_cache: dict[str, bool] = {}
+        for c in cards:
+            d = card_to_dict(c, db)
+            # Anonymize: if viewing public collection (not "mine"), check
+            # per-card override first, then the owner's profile setting.
+            if not is_mine and c.owner_id and c.owner_id != (user.id if user else None):
+                if c.owner_id not in _anon_cache:
+                    owner_obj = db.get(User, c.owner_id)
+                    _anon_cache[c.owner_id] = bool(owner_obj and owner_obj.anonymize_cards)
+                if _anon_cache[c.owner_id]:
+                    d["owner_username"] = "Anonymous"
+            card_dicts.append(d)
+
+        # Summary stats (scoped to query, not global)
+        all_complete = db.query(Card).filter(Card.status == "complete")
+        if is_mine and user:
+            all_complete = all_complete.filter(Card.owner_id == user.id)
+        elif not (user and user.is_admin) and not is_mine:
+            all_complete = all_complete.filter(Card.is_public == True)  # noqa: E712
+        complete_cards = all_complete.all()
+        total_value = sum(c.estimated_price for c in complete_cards if c.estimated_price)
         stats = {
-            "total_cards": db.query(Card).count(),
-            "complete": len(all_complete),
+            "total_cards": total,
+            "complete": len(complete_cards),
             "total_value": round(total_value, 2),
         }
 
         return {
-            "cards": [card_to_dict(c, db) for c in cards],
+            "cards": card_dicts,
             "total": total,
             "stats": stats,
         }
@@ -1330,6 +1368,8 @@ async def upload_card(
     front_image: UploadFile = File(None),
     back_image: UploadFile = File(None),
     scan_mode: bool = Query(default=False),
+    set_hint: str = Form(default=""),
+    is_public: str = Form(default="false"),
 ):
     """Receive front and/or back images. At least one required. scan_mode applies edge detection + perspective correction."""
     user = require_auth(request)
@@ -1393,6 +1433,8 @@ async def upload_card(
         back_image_path=back_path,
         status="pending",
         owner_id=user.id,
+        set_hint=set_hint.strip() or None,
+        is_public=(is_public.lower() in ("true", "1", "yes")),
     )
     db.add(card)
     db.commit()
@@ -1415,7 +1457,7 @@ def update_card(request: Request, card_id: str, body: dict):
         "sport", "is_rookie_card", "is_parallel", "parallel_name", "is_foil",
         "is_autograph", "is_relic", "relic_type", "is_numbered", "print_run",
         "serial_number", "has_alternate_jersey", "jersey_description",
-        "is_short_print", "notable_features",
+        "is_short_print", "notable_features", "is_public",
     }
     db = SessionLocal()
     try:

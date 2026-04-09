@@ -76,6 +76,16 @@ class Card(Base):
     # ── Ownership ────────────────────────────────────────────────────────────
     owner_id = Column(String)     # FK -> users.id (no constraint for migration ease)
 
+    # ── Privacy ─────────────────────────────────────────────────────────────
+    # Public cards show up on the shared "Card Collection" tab for everyone.
+    # Private cards (default) are only visible to the owner and admins.
+    is_public = Column(Boolean, default=False)
+
+    # ── Scanner input ──────────────────────────────────────────────────────
+    # Optional hint the user provided at scan time ("set dropdown") to help
+    # the AI narrow down the year/parallel. Free-form text.
+    set_hint = Column(String)
+
     # ── Raw Data ─────────────────────────────────────────────────────────────
     raw_analysis = Column(Text)   # full JSON from Gemini
     notes = Column(Text)          # user-editable notes
@@ -98,6 +108,10 @@ class User(Base):
     first_name = Column(String)
     last_name = Column(String)
     phone = Column(String)
+
+    # ── Privacy ─────────────────────────────────────────────────────────────
+    # When True, the user's name is hidden on public cards (shows "Anonymous")
+    anonymize_cards = Column(Boolean, default=False)
 
     # ── Email verification ──────────────────────────────────────────────────
     email_verified = Column(Boolean, default=False)
@@ -144,6 +158,8 @@ def _migrate(eng):
                 "graded_high": "FLOAT",
                 "graded_num_sales": "INTEGER",
                 "owner_id": "VARCHAR",
+                "is_public": "BOOLEAN",
+                "set_hint": "VARCHAR",
             }
             for col_name, col_type in card_cols.items():
                 if col_name not in existing:
@@ -157,6 +173,7 @@ def _migrate(eng):
                 "first_name": "VARCHAR",
                 "last_name": "VARCHAR",
                 "phone": "VARCHAR",
+                "anonymize_cards": "BOOLEAN",
                 "email_verified": "BOOLEAN",
                 "email_verify_token": "VARCHAR",
                 "email_verify_sent_at": "TIMESTAMP",

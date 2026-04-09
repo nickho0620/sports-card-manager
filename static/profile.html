@@ -103,6 +103,17 @@
       </form>
     </div>
 
+    <!-- Privacy -->
+    <div class="card">
+      <h2>Privacy</h2>
+      <p class="desc">Control how your name appears on publicly shared cards.</p>
+      <label style="display:flex; align-items:center; gap:10px; cursor:pointer; text-transform:none; letter-spacing:0; font-size:14px; color:#cbd5e1;">
+        <input type="checkbox" id="anonymize_cards" style="width:18px;height:18px;accent-color:#3b82f6;">
+        <span>Hide my name on public cards (show "Anonymous" instead)</span>
+      </label>
+      <p class="msg" id="anon-msg" style="margin-top:10px;"></p>
+    </div>
+
     <!-- Password -->
     <div class="card">
       <h2>Change Password</h2>
@@ -161,6 +172,7 @@
           ? '<span class="badge verified">✓ Verified</span>'
           : '<span class="badge pending">⏳ Pending verification</span>';
         document.getElementById('snap-created').textContent = fmtDate(u.created_at);
+        document.getElementById('anonymize_cards').checked = !!u.anonymize_cards;
       } catch (ex) {
         console.error(ex);
         window.location.href = '/login';
@@ -244,6 +256,32 @@
     });
 
     loadProfile();
+
+    // ── Anonymize toggle auto-save ────────────────────────────────────────
+    document.getElementById('anonymize_cards').addEventListener('change', async (e) => {
+      const msg = document.getElementById('anon-msg');
+      try {
+        const res = await fetch('/api/auth/me', {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ anonymize_cards: e.target.checked }),
+        });
+        if (res.ok) {
+          msg.className = 'msg ok';
+          msg.textContent = e.target.checked
+            ? '🔒 Your name is now hidden on public cards.'
+            : '👤 Your name is now visible on public cards.';
+        } else {
+          msg.className = 'msg err';
+          msg.textContent = 'Failed to save preference.';
+          e.target.checked = !e.target.checked;
+        }
+      } catch {
+        msg.className = 'msg err';
+        msg.textContent = 'Network error.';
+        e.target.checked = !e.target.checked;
+      }
+    });
   </script>
 </body>
 </html>
