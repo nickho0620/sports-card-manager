@@ -1321,19 +1321,24 @@
     }
 
     async function saveAllDetails(id) {
-      const body = gatherEditFields();
-      const res = await fetch('/api/cards/' + id, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body)
-      });
-      if (res.ok) {
-        showToast('Details saved');
-        loadCards();
-        closeModalDirect();
-      } else {
-        const data = await res.json().catch(() => ({}));
-        showToast(data.detail || 'Save failed');
+      try {
+        const body = gatherEditFields();
+        const res = await fetch('/api/cards/' + id, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body)
+        });
+        if (res.ok) {
+          showToast('Details saved');
+          loadCards();
+          closeModalDirect();
+        } else {
+          const data = await res.json().catch(() => ({}));
+          showToast(data.detail || 'Save failed');
+        }
+      } catch (err) {
+        console.error('saveAllDetails error:', err);
+        showToast('Save failed: ' + err.message);
       }
     }
 
