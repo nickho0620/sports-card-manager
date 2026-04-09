@@ -189,7 +189,7 @@
   <div id="site-header" style="position:sticky; top:0; z-index:50; background:#0f172a; border-bottom:1px solid #1e293b;">
     <header style="padding:14px 24px; display:flex; align-items:center; justify-content:space-between; gap:16px; background:#0f172a;">
       <div style="display:flex; align-items:center; gap:14px; min-width:0;">
-        <img src="/static/logo.png" alt="Card Radar" style="height:96px; width:auto; flex-shrink:0;">
+        <img src="/static/logo.png" alt="Card Radar" style="height:120px; width:auto; flex-shrink:0;">
         <p style="font-size:12px; color:#94a3b8; margin:0;" id="header-stats">Loading…</p>
       </div>
       <div style="display:flex; align-items:center; gap:12px; position:relative;" id="header-actions">
@@ -199,11 +199,11 @@
 
     <!-- Top-level navigation tabs -->
     <nav style="padding:0 24px; background:#0f172a; border-top:1px solid #1e293b;">
-      <div style="display:flex; align-items:center; gap:4px; overflow-x:auto;">
-        <button class="nav-tab active" data-view="all" onclick="switchView('all')">🃏 All Cards</button>
+      <div style="display:flex; align-items:center; justify-content:center; gap:4px; overflow-x:auto;">
+        <button class="nav-tab active" data-view="all" onclick="switchView('all')">🃏 Card Collection</button>
         <button class="nav-tab" data-view="info" onclick="switchView('info')">ℹ️ Info</button>
         <button class="nav-tab" data-view="pricing" onclick="switchView('pricing')">💎 Pricing</button>
-        <button class="nav-tab hidden" id="nav-mine" data-view="mine" onclick="switchView('mine')">⭐ My Cards</button>
+        <button class="nav-tab hidden" id="nav-mine" data-view="mine" onclick="switchView('mine')">⭐ My Collection</button>
       </div>
     </nav>
   </div>
@@ -376,7 +376,7 @@
         </details>
         <details class="faq-item">
           <summary>Can other people see my cards?</summary>
-          <p>All cards are visible on the public "All Cards" tab — this lets the community browse the collection. Only you (or an admin) can edit or delete your cards.</p>
+          <p>Cards you mark as public appear on the shared "Card Collection" tab so the community can browse them. Only you (or an admin) can edit or delete your cards.</p>
         </details>
         <details class="faq-item">
           <summary>How do I upgrade my account?</summary>
@@ -629,7 +629,7 @@
         banner.classList.add('hidden');
         document.getElementById('guest-banner').classList.remove('hidden');
         if (mineFilterActive) { mineFilterActive = false; }
-        // If user was on My Cards tab, switch back to All
+        // If user was on My Collection tab, switch back to Card Collection
         if (currentView === 'mine') switchView('all');
       }
       // Refresh header stats whenever auth state changes

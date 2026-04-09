@@ -70,7 +70,7 @@
       <div class="flex items-center justify-between mb-4 flex-wrap gap-3">
         <h2 class="font-bold text-lg">All Users</h2>
         <div class="flex items-center gap-2 flex-wrap">
-          <input id="user-search" type="text" placeholder="Search by username…" class="input w-64" oninput="renderUsers()">
+          <input id="user-search" type="search" name="admin-user-query" placeholder="Search by username…" class="input w-64" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" oninput="renderUsers()">
           <a href="/api/admin/users/export/csv" class="btn btn-primary" style="text-decoration:none;">📊 Export Users CSV</a>
         </div>
       </div>
