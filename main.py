@@ -184,26 +184,16 @@ app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 # ── Page Routes ──────────────────────────────────────────────────────────────
 
 @app.get("/", include_in_schema=False)
-def dashboard(request: Request):
-    # Anonymous visitors are allowed to browse the dashboard in read-only
-    # mode — the frontend hides write actions when no user is signed in.
-    # The only case we bounce is a signed-in-but-unverified account, which
-    # shouldn't normally happen since /login blocks unverified sign-ins,
-    # but we keep the guard as a safety net.
-    user = _current_user(request)
-    if user and not user.is_admin and not user.email_verified:
-        return RedirectResponse(url="/login?unverified=1", status_code=302)
+def dashboard():
+    # Dashboard is public — the frontend shows a guest banner and hides
+    # write actions when no user is signed in.
     return FileResponse(os.path.join(STATIC_DIR, "index.html"))
 
 
 @app.get("/scanner", include_in_schema=False)
-def scanner(request: Request):
-    # Anonymous visitors can view the scanner page. Actually *using* it
-    # (uploading a card) still hits an authed endpoint, so it's read-only
-    # for guests. Signed-in-but-unverified accounts still bounce.
-    user = _current_user(request)
-    if user and not user.is_admin and not user.email_verified:
-        return RedirectResponse(url="/login?unverified=1", status_code=302)
+def scanner():
+    # Scanner page is public. Actually *using* it (uploading a card)
+    # still hits an authed endpoint, so it's read-only for guests.
     return FileResponse(os.path.join(STATIC_DIR, "scanner.html"))
 
 
