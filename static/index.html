@@ -189,7 +189,9 @@
   <div id="site-header" style="position:sticky; top:0; z-index:50; background:#0f172a; border-bottom:1px solid #1e293b;">
     <header style="padding:14px 24px; display:flex; align-items:center; justify-content:space-between; gap:16px; background:#0f172a;">
       <div style="display:flex; align-items:center; gap:14px; min-width:0;">
-        <img src="/static/logo.png" alt="Card Radar" style="height:120px; width:auto; flex-shrink:0;">
+        <a href="/" style="display:flex; align-items:center; text-decoration:none;">
+          <img src="/static/logo.png" alt="Card Radar" style="height:120px; width:auto; flex-shrink:0;">
+        </a>
         <p style="font-size:12px; color:#94a3b8; margin:0;" id="header-stats">Loading…</p>
       </div>
       <div style="display:flex; align-items:center; gap:12px; position:relative;" id="header-actions">
@@ -201,6 +203,7 @@
     <nav style="padding:0 24px; background:#0f172a; border-top:1px solid #1e293b;">
       <div style="display:flex; align-items:center; justify-content:center; gap:4px; overflow-x:auto;">
         <button class="nav-tab active" data-view="all" onclick="switchView('all')">🃏 Card Collection</button>
+        <button class="nav-tab" data-view="howto" onclick="switchView('howto')">📖 How To Use</button>
         <button class="nav-tab" data-view="info" onclick="switchView('info')">ℹ️ Info</button>
         <button class="nav-tab" data-view="pricing" onclick="switchView('pricing')">💎 Pricing</button>
         <button class="nav-tab hidden" id="nav-mine" data-view="mine" onclick="switchView('mine')">⭐ My Collection</button>
@@ -306,6 +309,103 @@
       </a>
     </div>
     <div id="loading-state" class="text-center py-24 text-slate-500">Loading cards…</div>
+  </main>
+
+  <!-- How To Use View -->
+  <main id="view-howto" class="hidden">
+    <div class="info-wrap">
+      <section class="info-hero">
+        <span class="badge-pill">📖 How To Use</span>
+        <h1>Scan smarter,<br>get better results.</h1>
+        <p>A few simple habits will give you the best card identification and pricing accuracy Card Radar can produce. Here's everything you need to know before you start scanning.</p>
+      </section>
+
+      <!-- Best practices -->
+      <p class="info-section-title">Best practices</p>
+      <h2 class="info-section-h2">How to photograph a card</h2>
+      <div class="steps-grid">
+        <div class="step-card">
+          <span class="step-num">1</span>
+          <div class="step-icon">💡</div>
+          <h3>Use even lighting</h3>
+          <p>Natural daylight works best. Avoid harsh overhead light, flash, or standing so your shadow falls across the card — it washes out text and makes the year hard to read.</p>
+        </div>
+        <div class="step-card">
+          <span class="step-num">2</span>
+          <div class="step-icon">🎯</div>
+          <h3>Fill the frame</h3>
+          <p>Get close enough that the card takes up most of the photo. A large, centered card gives the AI the most detail to work with — especially for the copyright year and card number.</p>
+        </div>
+        <div class="step-card">
+          <span class="step-num">3</span>
+          <div class="step-icon">📐</div>
+          <h3>Shoot straight-on</h3>
+          <p>Hold your phone directly above the card, parallel to its surface. Angled photos distort the player image and make the fine print harder to read.</p>
+        </div>
+        <div class="step-card">
+          <span class="step-num">4</span>
+          <div class="step-icon">✨</div>
+          <h3>Wipe off glare</h3>
+          <p>Chrome, Prizm, and refractor cards are extra reflective. Tilt the card slightly to kill any glare covering the player name, set logo, or card number.</p>
+        </div>
+        <div class="step-card">
+          <span class="step-num">5</span>
+          <div class="step-icon">🔙</div>
+          <h3>Scan the back too</h3>
+          <p>The back of the card is where the copyright year, card number, and set name usually live. Scanning both sides dramatically improves accuracy.</p>
+        </div>
+        <div class="step-card">
+          <span class="step-num">6</span>
+          <div class="step-icon">🧾</div>
+          <h3>Fill in the set dropdown</h3>
+          <p>If you already know what set a card is from, pick it from the dropdown before scanning. It helps the AI narrow down the year and parallel more reliably.</p>
+        </div>
+      </div>
+
+      <!-- What to avoid -->
+      <p class="info-section-title">Common mistakes</p>
+      <h2 class="info-section-h2">What trips the scanner up</h2>
+      <div class="faq-list">
+        <details class="faq-item" open>
+          <summary>Blurry or out-of-focus photos</summary>
+          <p>A quick tap on the card in your camera app to refocus makes a huge difference. Blurry images almost always cause the AI to guess the year or misread the card number.</p>
+        </details>
+        <details class="faq-item">
+          <summary>Only scanning the front</summary>
+          <p>Many modern sets don't put the year on the front of the card. Without the back, the AI has to infer the year from design cues, which is where errors tend to happen.</p>
+        </details>
+        <details class="faq-item">
+          <summary>Dark or yellow indoor lighting</summary>
+          <p>Tungsten bulbs and dim rooms tint the photo and hide fine print. If you can, scan near a window or under a daylight lamp.</p>
+        </details>
+        <details class="faq-item">
+          <summary>Cards still in top-loaders with heavy glare</summary>
+          <p>Penny sleeves are fine. Top-loaders and one-touches often produce glare bands across the card. Angle the card slightly until the glare shifts off the printed area.</p>
+        </details>
+        <details class="faq-item">
+          <summary>Cropped or partial card images</summary>
+          <p>Cut-off borders, card numbers, or copyright text force the AI to guess. Include the full card in the frame, borders and all.</p>
+        </details>
+      </div>
+
+      <!-- Accuracy disclaimer -->
+      <div class="info-cta" style="border-color: rgba(251, 191, 36, 0.35); background: linear-gradient(135deg, rgba(251, 191, 36, 0.08), rgba(249, 115, 22, 0.05));">
+        <h3 style="color:#fcd34d;">⚠️ A note on accuracy</h3>
+        <p style="max-width:680px; margin:0 auto;">
+          Card Radar's identification is powered by AI and, while generally reliable, it is <strong>not 100% perfect</strong>. Years, parallels, and card numbers are the fields most commonly misread, especially on older cards or photos with poor lighting. Value estimates are approximations based on recent market data and should not be treated as professional appraisals. Always double-check high-value cards against official grading services and recent sold comps before buying, selling, or insuring them. You can edit any field on a card after scanning — if something looks wrong, fix it in one click.
+        </p>
+      </div>
+
+      <!-- CTA -->
+      <div class="info-cta">
+        <h3>Ready to scan your first card?</h3>
+        <p>Sign in and head to the scanner — the set dropdown and a good photo will get you the best results.</p>
+        <div class="info-cta-actions">
+          <a href="/scanner" class="info-cta-btn primary">📷 Open Scanner</a>
+          <button type="button" class="info-cta-btn secondary" onclick="switchView('all')">Browse the Collection →</button>
+        </div>
+      </div>
+    </div>
   </main>
 
   <!-- Info View -->
@@ -664,17 +764,22 @@
       });
       // Toggle main panels
       const cardsView   = document.getElementById('view-cards');
+      const howtoView   = document.getElementById('view-howto');
       const infoView    = document.getElementById('view-info');
       const pricingView = document.getElementById('view-pricing');
       const searchBar   = document.getElementById('search-bar');
 
       // Hide everything first
       cardsView.classList.add('hidden');
+      howtoView.classList.add('hidden');
       infoView.classList.add('hidden');
       pricingView.classList.add('hidden');
       searchBar.classList.add('hidden');
 
-      if (view === 'info') {
+      if (view === 'howto') {
+        howtoView.classList.remove('hidden');
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+      } else if (view === 'info') {
         infoView.classList.remove('hidden');
         window.scrollTo({ top: 0, behavior: 'smooth' });
       } else if (view === 'pricing') {

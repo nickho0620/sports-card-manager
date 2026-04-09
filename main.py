@@ -184,9 +184,20 @@ app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 # ── Page Routes ──────────────────────────────────────────────────────────────
 
 @app.get("/", include_in_schema=False)
-def dashboard():
-    # Dashboard is public — the frontend shows a guest banner and hides
-    # write actions when no user is signed in.
+def root(request: Request):
+    # Logged-out visitors see the marketing landing page. Signed-in users
+    # skip it and land straight in their collection dashboard.
+    user = _current_user(request)
+    if user:
+        return FileResponse(os.path.join(STATIC_DIR, "index.html"))
+    return FileResponse(os.path.join(STATIC_DIR, "welcome.html"))
+
+
+@app.get("/collection", include_in_schema=False)
+def collection():
+    # Public collection browser — guests can reach this via the welcome
+    # page's "Browse Collection" CTA. Write actions are gated by the
+    # frontend when no user is signed in.
     return FileResponse(os.path.join(STATIC_DIR, "index.html"))
 
 

@@ -1,0 +1,428 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Card Radar — Scan, Track, and Value Your Sports Cards with AI</title>
+<meta name="description" content="Card Radar uses AI to instantly identify your sports cards, estimate their value, and organize your entire collection. Create a free account to start scanning.">
+<link rel="icon" type="image/png" href="/static/logo.png">
+<link rel="manifest" href="/static/manifest.json">
+<style>
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+    background: #0b1120;
+    color: #f1f5f9;
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+  }
+  a { color: inherit; text-decoration: none; }
+  img { max-width: 100%; display: block; }
+
+  /* ── Top nav ─────────────────────────────────────── */
+  .top-nav {
+    position: sticky; top: 0; z-index: 50;
+    background: rgba(11, 17, 32, 0.85);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border-bottom: 1px solid rgba(51, 65, 85, 0.5);
+  }
+  .nav-inner {
+    max-width: 1200px;
+    margin: 0 auto;
+    padding: 14px 28px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 20px;
+  }
+  .nav-brand { display: flex; align-items: center; gap: 12px; }
+  .nav-brand img { height: 64px; width: auto; }
+  .nav-links { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; justify-content: flex-end; }
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 18px;
+    border-radius: 10px;
+    font-size: 14px;
+    font-weight: 600;
+    border: 1px solid transparent;
+    cursor: pointer;
+    transition: all 0.15s;
+    white-space: nowrap;
+    text-decoration: none;
+  }
+  .btn-primary { background: #3b82f6; color: #fff; }
+  .btn-primary:hover { background: #2563eb; transform: translateY(-1px); }
+  .btn-success { background: #22c55e; color: #fff; }
+  .btn-success:hover { background: #16a34a; transform: translateY(-1px); }
+  .btn-ghost { background: transparent; color: #cbd5e1; border-color: #334155; }
+  .btn-ghost:hover { background: #1e293b; color: #fff; border-color: #475569; }
+  .btn-lg { padding: 14px 28px; font-size: 15px; border-radius: 12px; }
+
+  /* ── Hero ─────────────────────────────────────── */
+  .hero {
+    position: relative;
+    padding: 80px 28px 100px;
+    text-align: center;
+    overflow: hidden;
+  }
+  .hero-bg {
+    position: absolute;
+    inset: 0;
+    background:
+      radial-gradient(ellipse 800px 500px at 50% 0%, rgba(59, 130, 246, 0.18), transparent 60%),
+      radial-gradient(ellipse 600px 400px at 80% 30%, rgba(34, 197, 94, 0.12), transparent 60%),
+      radial-gradient(ellipse 500px 350px at 20% 40%, rgba(168, 85, 247, 0.10), transparent 60%);
+    pointer-events: none;
+  }
+  .hero-content { position: relative; max-width: 840px; margin: 0 auto; }
+  .pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 14px;
+    border-radius: 999px;
+    background: rgba(59, 130, 246, 0.12);
+    border: 1px solid rgba(59, 130, 246, 0.35);
+    color: #93c5fd;
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    margin-bottom: 20px;
+  }
+  .hero h1 {
+    font-size: clamp(36px, 6vw, 64px);
+    font-weight: 800;
+    line-height: 1.05;
+    margin: 0 0 20px;
+    letter-spacing: -0.02em;
+    background: linear-gradient(135deg, #ffffff 0%, #cbd5e1 100%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+  .hero h1 .accent {
+    background: linear-gradient(135deg, #60a5fa 0%, #22c55e 100%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+  .hero p.lead {
+    font-size: clamp(16px, 2vw, 20px);
+    color: #94a3b8;
+    max-width: 640px;
+    margin: 0 auto 36px;
+  }
+  .hero-ctas {
+    display: flex;
+    gap: 12px;
+    justify-content: center;
+    flex-wrap: wrap;
+  }
+  .hero-note {
+    margin-top: 22px;
+    font-size: 13px;
+    color: #64748b;
+  }
+  .hero-note strong { color: #cbd5e1; }
+
+  /* ── Section base ─────────────────────────────────────── */
+  section { padding: 80px 28px; }
+  .container { max-width: 1120px; margin: 0 auto; }
+  .section-head { text-align: center; margin-bottom: 56px; }
+  .section-head .eyebrow {
+    color: #60a5fa;
+    font-size: 13px;
+    font-weight: 700;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    margin: 0 0 10px;
+  }
+  .section-head h2 {
+    font-size: clamp(28px, 4vw, 42px);
+    font-weight: 800;
+    margin: 0 0 14px;
+    letter-spacing: -0.01em;
+  }
+  .section-head p {
+    color: #94a3b8;
+    font-size: 17px;
+    max-width: 620px;
+    margin: 0 auto;
+  }
+
+  /* ── Features grid ─────────────────────────────────────── */
+  .features {
+    background: linear-gradient(180deg, transparent 0%, rgba(15, 23, 42, 0.4) 50%, transparent 100%);
+  }
+  .feature-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+    gap: 22px;
+  }
+  .feature-card {
+    background: #0f172a;
+    border: 1px solid #1e293b;
+    border-radius: 16px;
+    padding: 28px;
+    transition: all 0.2s;
+  }
+  .feature-card:hover {
+    border-color: #334155;
+    transform: translateY(-3px);
+    box-shadow: 0 20px 40px -20px rgba(0, 0, 0, 0.5);
+  }
+  .feature-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 48px;
+    height: 48px;
+    border-radius: 12px;
+    background: rgba(59, 130, 246, 0.12);
+    border: 1px solid rgba(59, 130, 246, 0.3);
+    margin-bottom: 18px;
+    font-size: 24px;
+  }
+  .feature-card h3 {
+    font-size: 18px;
+    font-weight: 700;
+    margin: 0 0 10px;
+    color: #f1f5f9;
+  }
+  .feature-card p {
+    color: #94a3b8;
+    margin: 0;
+    font-size: 14px;
+    line-height: 1.65;
+  }
+
+  /* ── Steps ─────────────────────────────────────── */
+  .steps {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+    gap: 24px;
+    counter-reset: step;
+  }
+  .step {
+    position: relative;
+    background: #0f172a;
+    border: 1px solid #1e293b;
+    border-radius: 16px;
+    padding: 32px 24px 24px;
+    counter-increment: step;
+  }
+  .step::before {
+    content: counter(step);
+    position: absolute;
+    top: -22px;
+    left: 24px;
+    width: 44px;
+    height: 44px;
+    border-radius: 12px;
+    background: linear-gradient(135deg, #3b82f6, #22c55e);
+    color: #fff;
+    font-size: 20px;
+    font-weight: 800;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    box-shadow: 0 8px 20px -6px rgba(59, 130, 246, 0.5);
+  }
+  .step h3 {
+    margin: 10px 0 8px;
+    font-size: 18px;
+    font-weight: 700;
+  }
+  .step p {
+    color: #94a3b8;
+    margin: 0;
+    font-size: 14px;
+  }
+
+  /* ── CTA band ─────────────────────────────────────── */
+  .cta-band {
+    background: linear-gradient(135deg, rgba(59, 130, 246, 0.12), rgba(34, 197, 94, 0.08));
+    border-top: 1px solid rgba(59, 130, 246, 0.2);
+    border-bottom: 1px solid rgba(59, 130, 246, 0.2);
+    text-align: center;
+  }
+  .cta-band h2 {
+    font-size: clamp(26px, 4vw, 38px);
+    margin: 0 0 12px;
+    font-weight: 800;
+  }
+  .cta-band p {
+    color: #cbd5e1;
+    margin: 0 0 28px;
+    font-size: 16px;
+    max-width: 520px;
+    margin-left: auto;
+    margin-right: auto;
+  }
+
+  /* ── Footer ─────────────────────────────────────── */
+  footer {
+    padding: 40px 28px 50px;
+    border-top: 1px solid #1e293b;
+    text-align: center;
+    color: #64748b;
+    font-size: 13px;
+  }
+  footer .foot-brand {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 12px;
+    color: #cbd5e1;
+    font-weight: 600;
+  }
+  footer .foot-brand img { height: 28px; width: auto; }
+  footer a.link { color: #94a3b8; transition: color 0.15s; }
+  footer a.link:hover { color: #fff; }
+  footer .foot-links { margin: 8px 0 16px; display: flex; gap: 20px; justify-content: center; flex-wrap: wrap; }
+
+  @media (max-width: 640px) {
+    .nav-brand img { height: 48px; }
+    .hero { padding: 60px 20px 80px; }
+    section { padding: 60px 20px; }
+    .section-head { margin-bottom: 40px; }
+  }
+</style>
+</head>
+<body>
+
+  <!-- ── Top nav ──────────────────────────────────── -->
+  <nav class="top-nav">
+    <div class="nav-inner">
+      <a href="/" class="nav-brand">
+        <img src="/static/logo.png" alt="Card Radar">
+      </a>
+      <div class="nav-links">
+        <a href="/collection" class="btn btn-ghost">Browse Collection</a>
+        <a href="/login" class="btn btn-ghost">Sign In</a>
+        <a href="/register" class="btn btn-success">Sign Up Free</a>
+      </div>
+    </div>
+  </nav>
+
+  <!-- ── Hero ──────────────────────────────────── -->
+  <div class="hero">
+    <div class="hero-bg"></div>
+    <div class="hero-content">
+      <div class="pill">📡 SCAN · TRACK · PROFIT</div>
+      <h1>
+        Your sports card collection,<br>
+        <span class="accent">identified by AI.</span>
+      </h1>
+      <p class="lead">
+        Snap a photo of any sports card and Card Radar instantly identifies the player, year, set, and estimated value. Organize your collection, spot hidden gems, and track your portfolio in one clean dashboard.
+      </p>
+      <div class="hero-ctas">
+        <a href="/register" class="btn btn-success btn-lg">✨ Create a Free Account</a>
+        <a href="/collection" class="btn btn-ghost btn-lg">👀 Browse the Collection</a>
+      </div>
+      <p class="hero-note">Free accounts include <strong>5 card scans</strong>. No credit card required.</p>
+    </div>
+  </div>
+
+  <!-- ── Features ──────────────────────────────────── -->
+  <section class="features">
+    <div class="container">
+      <div class="section-head">
+        <p class="eyebrow">What you get</p>
+        <h2>Everything you need to manage your collection</h2>
+        <p>From casual collector to serious investor, Card Radar gives you the tools to understand what you own and what it's worth.</p>
+      </div>
+      <div class="feature-grid">
+        <div class="feature-card">
+          <div class="feature-icon">📷</div>
+          <h3>AI Card Recognition</h3>
+          <p>Upload a photo and our AI reads the player, team, year, set, card number, and parallels automatically — no manual entry.</p>
+        </div>
+        <div class="feature-card">
+          <div class="feature-icon">💰</div>
+          <h3>Live Value Estimates</h3>
+          <p>Get real-time market estimates so you always know the approximate value of every card in your collection.</p>
+        </div>
+        <div class="feature-card">
+          <div class="feature-icon">📊</div>
+          <h3>Portfolio Dashboard</h3>
+          <p>See your total estimated value, analyzed card count, and cards-over-time all in one glance.</p>
+        </div>
+        <div class="feature-card">
+          <div class="feature-icon">🔒</div>
+          <h3>Private by Default</h3>
+          <p>Your cards are private unless you choose to share. Toggle any card public to show off to the community.</p>
+        </div>
+        <div class="feature-card">
+          <div class="feature-icon">⚡</div>
+          <h3>Fast & Mobile-Friendly</h3>
+          <p>Scan from your phone, laptop, or tablet. Card Radar works everywhere you do.</p>
+        </div>
+        <div class="feature-card">
+          <div class="feature-icon">🌐</div>
+          <h3>Community Gallery</h3>
+          <p>Browse cards shared by other collectors and discover rare finds from around the world.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ── How it works ──────────────────────────────────── -->
+  <section>
+    <div class="container">
+      <div class="section-head">
+        <p class="eyebrow">How it works</p>
+        <h2>Three steps to a complete collection</h2>
+        <p>Go from a pile of cards on your desk to a fully cataloged, valued portfolio in minutes.</p>
+      </div>
+      <div class="steps">
+        <div class="step">
+          <h3>Snap a photo</h3>
+          <p>Take a clear photo of the front of the card using your phone or webcam. Good lighting helps — we'll explain more in the How To Use guide.</p>
+        </div>
+        <div class="step">
+          <h3>Let AI do the work</h3>
+          <p>Card Radar identifies the player, year, set, card number, and any parallels or variations automatically.</p>
+        </div>
+        <div class="step">
+          <h3>Track your portfolio</h3>
+          <p>Each card lands in your Collection with an estimated value. Filter, sort, and share as you grow.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ── CTA band ──────────────────────────────────── -->
+  <section class="cta-band">
+    <div class="container">
+      <h2>Ready to see what your cards are worth?</h2>
+      <p>Create a free account and start scanning in under a minute. No credit card, no catch.</p>
+      <div class="hero-ctas">
+        <a href="/register" class="btn btn-success btn-lg">✨ Get Started — It's Free</a>
+        <a href="/login" class="btn btn-ghost btn-lg">I already have an account</a>
+      </div>
+    </div>
+  </section>
+
+  <!-- ── Footer ──────────────────────────────────── -->
+  <footer>
+    <div class="foot-brand">
+      <img src="/static/logo.png" alt="Card Radar">
+    </div>
+    <div class="foot-links">
+      <a class="link" href="/collection">Browse Collection</a>
+      <a class="link" href="/login">Sign In</a>
+      <a class="link" href="/register">Create Account</a>
+    </div>
+    <p style="margin: 6px 0 0;">© Card Radar. Scan · Track · Profit.</p>
+    <p style="margin: 4px 0 0; font-size: 11px;">Card identification is powered by AI and may not be 100% accurate. Value estimates are approximations and should not be treated as professional appraisals.</p>
+  </footer>
+
+</body>
+</html>
