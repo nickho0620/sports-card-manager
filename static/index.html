@@ -202,11 +202,11 @@
     <!-- Top-level navigation tabs -->
     <nav style="padding:0 24px; background:#0f172a; border-top:1px solid #1e293b;">
       <div style="display:flex; align-items:center; justify-content:center; gap:4px; overflow-x:auto;">
-        <button class="nav-tab active" data-view="all" onclick="switchView('all')">🃏 Card Collection</button>
-        <button class="nav-tab" data-view="howto" onclick="switchView('howto')">📖 How To Use</button>
-        <button class="nav-tab" data-view="info" onclick="switchView('info')">ℹ️ Info</button>
-        <button class="nav-tab" id="nav-pricing" data-view="pricing" onclick="switchView('pricing')">💎 Pricing</button>
         <button class="nav-tab hidden" id="nav-mine" data-view="mine" onclick="switchView('mine')">⭐ My Collection</button>
+        <button class="nav-tab active" data-view="all" onclick="switchView('all')">🌐 Community Collection</button>
+        <button class="nav-tab" data-view="info" onclick="switchView('info')">ℹ️ Info</button>
+        <button class="nav-tab" data-view="howto" onclick="switchView('howto')">📖 How To Use</button>
+        <button class="nav-tab" id="nav-pricing" data-view="pricing" onclick="switchView('pricing')">💎 Pricing</button>
       </div>
     </nav>
   </div>
@@ -224,9 +224,12 @@
   </div>
 
   <!-- Guest CTA banner -->
-  <div id="guest-banner" class="hidden px-6 py-3 bg-gradient-to-r from-blue-900/40 to-green-900/40 border-b border-slate-800 flex items-center justify-between gap-4 flex-wrap text-sm">
-    <span class="text-slate-200">👋 Want to scan and manage your own sports card collection? It's free.</span>
-    <a href="/register" class="bg-green-600 hover:bg-green-500 text-white px-4 py-1.5 rounded-lg font-semibold text-xs transition-colors">Create a Free Account</a>
+  <div id="guest-banner" class="hidden px-6 py-4 border-b border-green-800/50 flex items-center justify-between gap-4 flex-wrap" style="background:linear-gradient(135deg, #0f4c2a 0%, #1e3a5f 50%, #2e1065 100%);">
+    <div>
+      <span class="text-white font-bold text-base">🪙 Start your collection for free</span>
+      <p class="text-green-200/80 text-xs mt-0.5">Scan cards with AI, get live eBay pricing, and track your collection.</p>
+    </div>
+    <a href="/register" class="bg-green-500 hover:bg-green-400 text-white px-5 py-2 rounded-lg font-bold text-sm transition-colors shadow-lg shadow-green-900/40" style="white-space:nowrap;">Create a Free Account</a>
   </div>
 
   <!-- Filters & Search (only shown on cards views) -->
@@ -724,6 +727,8 @@
           </div>`;
         navMine.classList.remove('hidden');
         document.getElementById('nav-pricing').classList.add('hidden');
+        // Default to My Collection for signed-in users on first load
+        if (!window._authViewSet) { switchView('mine'); window._authViewSet = true; }
 
         // Banner: show usage / upgrade link
         if (isAdmin) {
@@ -842,9 +847,11 @@
     async function doLogout() {
       await fetch('/api/auth/logout', { method: 'POST' });
       isLoggedIn = false; isAdmin = false; currentUser = null;
+      currentModalCardId = null;
+      closeModalDirect();
       await checkAuth();
+      switchView('all');
       loadCards();
-      if (currentModalCardId) openModal(currentModalCardId);
     }
 
     // (legacy toggleMineFilter removed — now handled via switchView)
