@@ -59,6 +59,27 @@
     <h1 class="page-title">My Profile</h1>
     <p class="page-sub">Manage your account information, email, and password.</p>
 
+    <!-- Profile Picture -->
+    <div class="card" style="display:flex;align-items:center;gap:24px;flex-wrap:wrap;">
+      <div style="position:relative;">
+        <div id="avatar-preview" style="width:88px;height:88px;border-radius:50%;background:#334155;display:flex;align-items:center;justify-content:center;font-size:36px;font-weight:800;color:#94a3b8;overflow:hidden;border:3px solid #475569;">
+          <span id="avatar-initial">?</span>
+        </div>
+      </div>
+      <div style="flex:1;min-width:180px;">
+        <h2 style="margin:0 0 4px;font-size:18px;">Profile Picture</h2>
+        <p class="desc" style="margin:0 0 12px;">Upload a photo so your profile stands out.</p>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;">
+          <label class="btn" style="cursor:pointer;font-size:13px;padding:8px 16px;">
+            Upload Photo
+            <input type="file" id="avatar-input" accept="image/jpeg,image/png,image/webp,image/gif" style="display:none;" onchange="uploadAvatar(this.files[0])">
+          </label>
+          <button class="btn" id="remove-avatar-btn" style="background:#334155;font-size:13px;padding:8px 16px;display:none;" onclick="removeAvatar()">Remove</button>
+        </div>
+        <p class="msg" id="avatar-msg" style="margin-top:8px;"></p>
+      </div>
+    </div>
+
     <!-- Account snapshot -->
     <div class="card">
       <h2>Account</h2>
@@ -169,6 +190,19 @@
         document.getElementById('phone').value = u.phone || '';
         currentEmail = u.email || '';
 
+        // Profile picture
+        const avatarPreview = document.getElementById('avatar-preview');
+        const avatarInitial = document.getElementById('avatar-initial');
+        const removeBtn = document.getElementById('remove-avatar-btn');
+        if (u.profile_picture) {
+          avatarPreview.innerHTML = `<img src="${u.profile_picture}?t=${Date.now()}" style="width:100%;height:100%;object-fit:cover;">`;
+          removeBtn.style.display = 'inline-block';
+        } else {
+          const initial = (u.username || '?').charAt(0).toUpperCase();
+          avatarPreview.innerHTML = `<span id="avatar-initial" style="font-size:36px;font-weight:800;color:#94a3b8;">${initial}</span>`;
+          removeBtn.style.display = 'none';
+        }
+
         document.getElementById('snap-username').textContent = u.username || '—';
         const tier = (u.subscription_tier || 'free').toUpperCase();
         const planText = u.is_admin
@@ -266,6 +300,44 @@
       }
       btn.disabled = false; btn.textContent = 'Update Password';
     });
+
+    // ── Profile picture upload / remove ────────────────────────────────────
+    async function uploadAvatar(file) {
+      if (!file) return;
+      const msg = document.getElementById('avatar-msg');
+      msg.className = 'msg'; msg.textContent = 'Uploading…';
+      const form = new FormData();
+      form.append('image', file);
+      try {
+        const res = await fetch('/api/auth/me/profile-picture', { method: 'POST', body: form });
+        if (res.ok) {
+          msg.className = 'msg ok'; msg.textContent = '✅ Profile picture updated.';
+          loadProfile();
+        } else {
+          const data = await res.json().catch(() => ({}));
+          msg.className = 'msg err'; msg.textContent = data.detail || 'Upload failed.';
+        }
+      } catch {
+        msg.className = 'msg err'; msg.textContent = 'Connection error.';
+      }
+      document.getElementById('avatar-input').value = '';
+    }
+
+    async function removeAvatar() {
+      const msg = document.getElementById('avatar-msg');
+      msg.className = 'msg'; msg.textContent = '';
+      try {
+        const res = await fetch('/api/auth/me/profile-picture', { method: 'DELETE' });
+        if (res.ok) {
+          msg.className = 'msg ok'; msg.textContent = '✅ Profile picture removed.';
+          loadProfile();
+        } else {
+          msg.className = 'msg err'; msg.textContent = 'Could not remove picture.';
+        }
+      } catch {
+        msg.className = 'msg err'; msg.textContent = 'Connection error.';
+      }
+    }
 
     loadProfile();
 

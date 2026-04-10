@@ -108,6 +108,7 @@ class User(Base):
     first_name = Column(String)
     last_name = Column(String)
     phone = Column(String)
+    profile_picture = Column(String)  # relative URL path to uploaded image
 
     # ── Privacy ─────────────────────────────────────────────────────────────
     # When True, the user's name is hidden on public cards (shows "Anonymous")
@@ -191,6 +192,7 @@ def _migrate(eng):
                 "scans_month_key": "VARCHAR",
                 "reprices_this_month": "INTEGER",
                 "reprices_month_key": "VARCHAR",
+                "profile_picture": "VARCHAR",
             }
             for col_name, col_type in user_cols.items():
                 if col_name not in existing:

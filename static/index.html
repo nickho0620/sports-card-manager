@@ -27,6 +27,54 @@
     .modal-box    { background:#1e293b;border-radius:16px;width:100%;max-width:720px;max-height:92vh;overflow-y:auto; }
     @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.4} }
     .pulsing { animation: pulse 1.5s ease-in-out infinite; }
+
+    /* Pack-opening animation */
+    @keyframes packTearLeft {
+      0% { transform:translateX(0) rotate(0deg); opacity:1; }
+      60% { transform:translateX(-120%) rotate(-12deg); opacity:1; }
+      100% { transform:translateX(-120%) rotate(-12deg); opacity:0; }
+    }
+    @keyframes packTearRight {
+      0% { transform:translateX(0) rotate(0deg); opacity:1; }
+      60% { transform:translateX(120%) rotate(12deg); opacity:1; }
+      100% { transform:translateX(120%) rotate(12deg); opacity:0; }
+    }
+    @keyframes packCardsReveal {
+      0% { opacity:0; transform:scale(.85) translateY(30px); }
+      60% { opacity:0; transform:scale(.85) translateY(30px); }
+      100% { opacity:1; transform:scale(1) translateY(0); }
+    }
+    @keyframes packShine {
+      0% { left:-100%; }
+      50% { left:100%; }
+      100% { left:100%; }
+    }
+    .pack-overlay {
+      position:fixed; inset:0; z-index:100; display:flex; align-items:center; justify-content:center;
+      background:rgba(15,23,42,.92); pointer-events:none;
+    }
+    .pack-wrapper { position:relative; width:200px; height:300px; }
+    .pack-half {
+      position:absolute; top:0; width:50%; height:100%; overflow:hidden;
+    }
+    .pack-half-left { left:0; animation:packTearLeft 1.2s ease-in-out forwards; }
+    .pack-half-right { right:0; animation:packTearRight 1.2s ease-in-out forwards; }
+    .pack-inner {
+      width:200px; height:300px; border-radius:16px;
+      background:linear-gradient(135deg,#1e3a8a 0%,#3b82f6 40%,#7c3aed 100%);
+      display:flex; align-items:center; justify-content:center; flex-direction:column;
+      box-shadow:0 20px 60px rgba(59,130,246,.4); position:relative; overflow:hidden;
+    }
+    .pack-inner::after {
+      content:''; position:absolute; top:0; left:-100%; width:60%; height:100%;
+      background:linear-gradient(90deg,transparent,rgba(255,255,255,.15),transparent);
+      animation:packShine 1.2s ease-in-out forwards;
+    }
+    .pack-half-left .pack-inner { border-radius:16px 0 0 16px; }
+    .pack-half-right .pack-inner { margin-left:-100%; border-radius:0 16px 16px 0; }
+    .pack-label { font-size:18px; font-weight:800; color:#fff; letter-spacing:.05em; z-index:1; }
+    .pack-label-sub { font-size:11px; color:rgba(255,255,255,.6); margin-top:4px; z-index:1; }
+    .pack-cards-reveal { animation:packCardsReveal 1.2s ease-out forwards; }
     .filter-btn { padding:6px 16px; border-radius:999px; font-size:13px; cursor:pointer; border:1px solid #334155; transition:all .15s; }
     .filter-btn.active { background:#3b82f6; border-color:#3b82f6; color:#fff; }
     .filter-btn:not(.active) { background:transparent; color:#94a3b8; }
@@ -753,12 +801,15 @@
           ? `<a href="/admin">⚙️ <span>Admin Console</span></a>`
           : '';
         const initial = (currentUser.username || '?').charAt(0).toUpperCase();
+        const avatarHtml = currentUser.profile_picture
+          ? `<img src="${currentUser.profile_picture}" style="width:28px;height:28px;border-radius:50%;object-fit:cover;">`
+          : `<span class="w-7 h-7 rounded-full bg-blue-600 flex items-center justify-center text-sm font-bold">${initial}</span>`;
         el.innerHTML = `
           <a href="/scanner" class="inline-flex items-center gap-2 bg-blue-600 hover:bg-blue-500 text-white px-4 py-2 rounded-xl font-semibold text-sm transition-colors whitespace-nowrap">📷 Scan Card</a>
           ${(isAdmin || (currentUser.subscription_tier||'').toLowerCase() === 'unlimited') ? '<button onclick="openBulkUpload()" class="inline-flex items-center gap-2 text-white px-4 py-2 rounded-xl font-semibold text-sm transition-colors whitespace-nowrap" style="background:#7c3aed;">📦 Bulk Upload</button>' : ''}
           <div class="relative">
             <button onclick="toggleUserMenu(event)" class="user-menu-btn">
-              <span class="w-7 h-7 rounded-full bg-blue-600 flex items-center justify-center text-sm font-bold">${initial}</span>
+              ${avatarHtml}
               <span class="hidden sm:inline">${currentUser.username}</span>
               <span class="text-slate-400">▾</span>
             </button>
@@ -866,8 +917,37 @@
 
     // ── Top-level view switching ────────────────────────────────────────────
     let currentView = 'all'; // 'all' | 'info' | 'pricing' | 'mine'
+    let packAnimShown = false; // only play once per session
+
+    function showPackAnimation() {
+      const overlay = document.createElement('div');
+      overlay.className = 'pack-overlay';
+      overlay.innerHTML = `
+        <div class="pack-wrapper">
+          <div class="pack-half pack-half-left">
+            <div class="pack-inner">
+              <div class="pack-label">CardMint</div>
+              <div class="pack-label-sub">My Collection</div>
+            </div>
+          </div>
+          <div class="pack-half pack-half-right">
+            <div class="pack-inner">
+              <div class="pack-label">CardMint</div>
+              <div class="pack-label-sub">My Collection</div>
+            </div>
+          </div>
+        </div>`;
+      document.body.appendChild(overlay);
+      setTimeout(() => {
+        overlay.style.transition = 'opacity .3s';
+        overlay.style.opacity = '0';
+        setTimeout(() => overlay.remove(), 300);
+      }, 1200);
+    }
+
     function switchView(view) {
       if (view === 'mine' && !isLoggedIn) { window.location.href = '/login'; return; }
+      const showPack = (view === 'mine' && !packAnimShown);
       currentView = view;
       // Update tab styles
       document.querySelectorAll('.nav-tab').forEach(t => {
@@ -900,6 +980,13 @@
         cardsView.classList.remove('hidden');
         searchBar.classList.remove('hidden');
         mineFilterActive = (view === 'mine');
+        if (showPack) {
+          packAnimShown = true;
+          showPackAnimation();
+          // Add reveal animation to the card grid
+          const grid = document.getElementById('card-container');
+          if (grid) { grid.classList.add('pack-cards-reveal'); setTimeout(() => grid.classList.remove('pack-cards-reveal'), 1300); }
+        }
         loadCards();
       }
     }

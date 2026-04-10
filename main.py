@@ -332,6 +332,7 @@ def user_to_dict(user: User, db=None) -> dict:
         "subscription_tier": user.subscription_tier,
         "subscription_expires_at": (user.subscription_expires_at.isoformat() + "Z") if user.subscription_expires_at else None,
         "anonymize_cards": bool(user.anonymize_cards),
+        "profile_picture": user.profile_picture,
         "cards_used": effective_used,
         "monthly_cards_used": scans_used,
         "total_cards": cards_used,
@@ -780,6 +781,72 @@ def auth_update_me(request: Request, body: dict, background_tasks: BackgroundTas
         db.commit()
         db.refresh(user)
         return {"status": "ok", "user": user_to_dict(user, db)}
+    finally:
+        db.close()
+
+
+# ── Profile Picture Upload ──────────────────────────────────────────────────
+
+@app.post("/api/auth/me/profile-picture")
+async def upload_profile_picture(request: Request, image: UploadFile = File(...)):
+    """Upload or replace the user's profile picture."""
+    current = require_auth(request)
+    db = SessionLocal()
+    try:
+        user = db.get(User, current.id)
+        if not user:
+            raise HTTPException(status_code=404, detail="User not found")
+
+        # Validate file type
+        allowed_types = {"image/jpeg", "image/png", "image/webp", "image/gif"}
+        if image.content_type not in allowed_types:
+            raise HTTPException(status_code=400, detail="Only JPEG, PNG, WEBP, and GIF images are allowed")
+
+        # Create user avatar directory
+        user_dir = os.path.join(UPLOAD_DIR, "avatars", user.id)
+        os.makedirs(user_dir, exist_ok=True)
+
+        # Determine extension from content type
+        ext_map = {"image/jpeg": ".jpg", "image/png": ".png", "image/webp": ".webp", "image/gif": ".gif"}
+        ext = ext_map.get(image.content_type, ".jpg")
+        filename = f"profile{ext}"
+        filepath = os.path.join(user_dir, filename)
+
+        # Remove any existing profile pictures
+        for existing in os.listdir(user_dir):
+            os.remove(os.path.join(user_dir, existing))
+
+        # Save new image
+        data = await image.read()
+        with open(filepath, "wb") as f:
+            f.write(data)
+
+        # Update DB
+        user.profile_picture = f"/uploads/avatars/{user.id}/{filename}"
+        db.commit()
+        db.refresh(user)
+        return {"status": "ok", "profile_picture": user.profile_picture}
+    finally:
+        db.close()
+
+
+@app.delete("/api/auth/me/profile-picture")
+def delete_profile_picture(request: Request):
+    """Remove the user's profile picture."""
+    current = require_auth(request)
+    db = SessionLocal()
+    try:
+        user = db.get(User, current.id)
+        if not user:
+            raise HTTPException(status_code=404, detail="User not found")
+        # Remove files
+        user_dir = os.path.join(UPLOAD_DIR, "avatars", user.id)
+        if os.path.exists(user_dir):
+            for existing in os.listdir(user_dir):
+                os.remove(os.path.join(user_dir, existing))
+        user.profile_picture = None
+        db.commit()
+        return {"status": "ok"}
     finally:
         db.close()
 
