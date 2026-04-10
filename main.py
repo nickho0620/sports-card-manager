@@ -39,7 +39,7 @@ from fastapi.staticfiles import StaticFiles
 from PIL import Image
 from sqlalchemy import or_
 
-from card_analyzer import analyze_card
+from card_analyzer import analyze_card, analyze_card_combined
 from database import Card, PasswordResetRequest, SessionLocal, User, init_db
 from ebay_pricing import get_ebay_pricing
 from email_service import (
@@ -1275,6 +1275,71 @@ def process_card(card_id: str):
         db.close()
 
 
+def process_card_combined(card_id: str):
+    """Analyze a combined front+back image with Claude, then fetch eBay pricing."""
+    db = SessionLocal()
+    try:
+        card = db.get(Card, card_id)
+        if not card:
+            return
+
+        card.status = "analyzing"
+        db.commit()
+
+        try:
+            analysis = analyze_card_combined(
+                card.front_image_path,
+                set_hint=card.set_hint,
+            )
+            field_map = {
+                "player_name", "year", "brand", "set_name", "subset", "insert_set",
+                "product_code", "card_number",
+                "team", "sport", "is_rookie_card", "is_parallel", "parallel_name",
+                "is_foil", "is_autograph", "is_relic", "relic_type", "is_numbered",
+                "print_run", "serial_number", "has_alternate_jersey", "jersey_description",
+                "is_short_print", "condition", "notable_features", "description",
+            }
+            for field in field_map:
+                if field in analysis and analysis[field] is not None:
+                    setattr(card, field, analysis[field])
+            card.raw_analysis = json.dumps(analysis)
+            card.status = "analyzed"
+            db.commit()
+        except Exception as e:
+            card.status = "error"
+            card.notes = f"Analysis error: {e}"
+            db.commit()
+            return
+
+        card.status = "pricing"
+        db.commit()
+
+        try:
+            pricing = get_ebay_pricing(card)
+            if pricing:
+                card.ebay_avg_sale = pricing["avg"]
+                card.ebay_low = pricing["low"]
+                card.ebay_high = pricing["high"]
+                card.ebay_num_sales = pricing["num_sales"]
+                card.ebay_last_checked = datetime.utcnow()
+                card.ebay_search_query = pricing["search_query"]
+                card.ebay_search_url = pricing.get("search_url")
+                card.pricing_source = pricing.get("source")
+                card.estimated_price = pricing["avg"]
+                card.graded_avg = pricing.get("graded_avg")
+                card.graded_low = pricing.get("graded_low")
+                card.graded_high = pricing.get("graded_high")
+                card.graded_num_sales = pricing.get("graded_num_sales")
+        except Exception:
+            pass
+
+        card.status = "complete"
+        db.commit()
+
+    finally:
+        db.close()
+
+
 def refresh_pricing(card_id: str):
     """Re-run eBay pricing for an existing card."""
     db = SessionLocal()
@@ -1597,6 +1662,70 @@ async def upload_card(
     if front_path and back_path:
         background_tasks.add_task(process_card, card_id)
 
+    return {"card_id": card_id, "status": "pending"}
+
+
+@app.post("/api/cards/upload-combined")
+async def upload_card_combined(
+    request: Request,
+    background_tasks: BackgroundTasks,
+    image: UploadFile = File(...),
+    set_hint: str = Form(default=""),
+    is_public: str = Form(default="false"),
+):
+    """Upload a single image containing both front and back of a card (flatbed scanner).
+    Restricted to Unlimited tier and admins only."""
+    user = require_auth(request)
+
+    # Tier check: unlimited or admin only
+    db_check = SessionLocal()
+    try:
+        u = db_check.get(User, user.id)
+        tier = (u.subscription_tier or "free").lower()
+        if not u.is_admin and tier != "unlimited":
+            raise HTTPException(
+                status_code=403,
+                detail="Bulk upload is only available for Unlimited members.",
+            )
+    finally:
+        db_check.close()
+
+    card_id = str(uuid.uuid4())
+
+    raw = await image.read()
+    image_bytes = _resize_image_bytes(raw)
+
+    if USE_CLOUDINARY:
+        result = cloudinary.uploader.upload(
+            image_bytes, folder=f"cards/{card_id}", public_id="front",
+            resource_type="image",
+        )
+        image_path = result["secure_url"]
+    else:
+        card_dir = os.path.join(UPLOAD_DIR, card_id)
+        os.makedirs(card_dir, exist_ok=True)
+        fp = os.path.join(card_dir, "front.jpg")
+        async with aiofiles.open(fp, "wb") as f:
+            await f.write(image_bytes)
+        image_path = fp
+
+    db = SessionLocal()
+    card = Card(
+        id=card_id,
+        front_image_path=image_path,
+        back_image_path=None,
+        status="pending",
+        owner_id=user.id,
+        set_hint=set_hint.strip() or None,
+        is_public=(is_public.lower() in ("true", "1", "yes")),
+    )
+    db.add(card)
+    u = db.get(User, user.id)
+    _bump_scan_count(db, u)
+    db.commit()
+    db.close()
+
+    background_tasks.add_task(process_card_combined, card_id)
     return {"card_id": card_id, "status": "pending"}
 
 

@@ -270,6 +270,102 @@ def _verify_with_ebay(client, front_content: dict, back_content: dict,
         return None
 
 
+COMBINED_ANALYSIS_PROMPT = """You are an expert sports card grader, identifier, and cataloger with encyclopedic knowledge of all card sets, inserts, parallels, and product codes.
+
+This single image contains BOTH the front and back of a sports card that was scanned on a flatbed scanner. The two sides are laid out together — typically side by side or top and bottom. First, identify which portion is the FRONT of the card and which is the BACK.
+
+Then follow these instructions:
+
+CRITICAL STEP — READ ALL CODES AND FINE PRINT ON THE BACK FIRST:
+Look at the BACK portion carefully. Read ALL text, especially the smallest print at the bottom. You are looking for:
+1. PRODUCT CODE — a code like "CMP097855", "CODE#CMP097855", or similar alphanumeric string. This is a manufacturer catalog code that uniquely identifies the product/set/release. Transcribe it EXACTLY.
+2. SET/INSERT CODE — a short code before the card number (e.g. "T88-10" means the "T88" 1988 Topps insert, card #10; "BCP-42" = Bowman Chrome Prospects #42; "PSC" = Prizm Silver Chrome). This identifies the specific insert or subset.
+3. COPYRIGHT YEAR — text like "© 2024 Topps" or "© 2025 Panini" — this is the ACTUAL release year. Do NOT guess the year from player stats.
+4. SET NAME — often printed in a header, footer, or alongside the card number (e.g. "TOPPS CHROME", "DONRUSS RATED ROOKIE", "PRIZM", "1990 TOPPS CHROME SILVER PACK").
+5. CARD NUMBER — e.g. "#123", "BCP-42", "T88-10"
+Read EVERY piece of fine print on the back before making your identification.
+
+Also examine:
+- The FRONT portion for: card design style, border color/pattern, foil stamps, holographic effects, refractor rainbow patterns, numbered stamps (like /25, /50, /99), autograph stickers or on-card autos, jersey/patch swatches, RC logo, the uniform the player is wearing.
+- The BACK portion for: the card number (e.g. "#123" or "BCP-42"), the set name in the header or footer, copyright year, product code, any "PARALLEL" or "INSERT" text, print run stamps.
+
+Use ALL of this information to identify the EXACT card. Do not guess the year from the player's stats — use the copyright year on the back.
+
+Return ONLY a valid JSON object — no markdown, no explanation:
+{
+  "player_name": "Full player name, or null",
+  "year": <4-digit integer from the copyright year on the back, or null>,
+  "brand": "Topps / Panini / Upper Deck / Bowman / Donruss / Fleer / Score / Leaf / etc., or null",
+  "set_name": "The specific set name (e.g. 'Topps Chrome', 'Prizm', 'Stadium Club', 'Bowman 1st', 'Donruss Rated Rookie', 'Select', 'Mosaic') — NOT just the brand, or null",
+  "subset": "e.g. All-Star, Draft Picks, Rookie Debut, or null",
+  "insert_set": "If this is an insert card, the insert set name (e.g. '1989 Topps', 'Silver Pack Mojo', 'Finest Flashbacks', '1990 Topps Chrome', 'Wander Franco Generation Now') — use the product code to identify this, or null",
+  "card_number": "Card number/ID exactly as printed (e.g. '123', 'BCP-42', 'T88-10', 'MLMAR-CB'). Include the full alphanumeric code — the prefix often identifies the insert set (e.g. MLMAR = Major League Marquee, T88 = 1988 Topps insert), or null",
+  "team": "team name, or null",
+  "sport": "Baseball / Basketball / Football / Hockey / Soccer / Other",
+  "product_code": "The manufacturer/catalog code from the back (e.g. 'CMP097855', 'CODE#CMP097855') — transcribe EXACTLY as printed, or null",
+  "is_rookie_card": true or false,
+  "is_parallel": true or false,
+  "parallel_name": "Be specific — e.g. 'Gold /2024', 'Rainbow Foil', 'Prizm Silver', 'Refractor', 'Holo', 'Scope', 'Speckle', 'Disco', 'Mojo', 'Green Shimmer', 'Red /199', 'Blue /150', 'Purple /75', or null. LOOK for visual cues: rainbow sheen = refractor, colored border = color parallel, sparkle = foil/shimmer",
+  "is_foil": true or false,
+  "is_autograph": true or false,
+  "is_relic": true or false,
+  "relic_type": "Jersey / Patch / Bat / Ball / Glove / etc., or null",
+  "is_numbered": true or false,
+  "print_run": <integer — the total from the stamp e.g. 25 for /25, or null>,
+  "serial_number": "the stamped number exactly as shown e.g. '15/25', or null",
+  "has_alternate_jersey": true or false,
+  "jersey_description": "e.g. City Connect, All-Star, Throwback, Spring Training, Players Weekend, or null",
+  "is_short_print": true or false,
+  "condition": "Mint / Near Mint / Excellent / Very Good / Good / Poor  (visual estimate — look at centering, corners, edges, surface)",
+  "notable_features": "Any other notable features as a plain string, or null",
+  "description": "1-2 sentence summary including the exact set identification (e.g. '2024 Topps Series 1 1989 Topps Silver Pack Chrome insert of Juan Soto')"
+}
+
+IMPORTANT: If you are uncertain about ANY field, set it to null rather than guessing."""
+
+
+def analyze_card_combined(image_path: str, retries: int = 3,
+                          set_hint: str | None = None) -> dict:
+    """
+    Analyze a single image containing both front and back of a card.
+    Used for flatbed scanner bulk uploads where both sides are in one file.
+    Same two-pass process as analyze_card() but with a combined prompt.
+    """
+    api_key = os.getenv("ANTHROPIC_API_KEY")
+    if not api_key:
+        raise ValueError("ANTHROPIC_API_KEY environment variable is not set.")
+
+    client = anthropic.Anthropic(api_key=api_key)
+    image_content = _make_image_content(image_path)
+
+    prompt_text = COMBINED_ANALYSIS_PROMPT
+    if set_hint and set_hint.strip().lower() not in ("", "unknown"):
+        prompt_text += (
+            f"\n\nIMPORTANT HINT FROM THE USER: The user has indicated this card "
+            f"is from the **{set_hint.strip()}** set. Use this as a strong prior "
+            f"when identifying the set_name, brand, and year. Still verify against "
+            f"the copyright text and visual cues — if the card clearly contradicts "
+            f"the hint, trust the physical evidence."
+        )
+
+    # Pass 1 — Initial analysis
+    result = _call_claude(
+        client, CLAUDE_MODEL, 1024,
+        [
+            {"type": "text", "text": prompt_text},
+            image_content,
+        ],
+        retries=retries,
+    )
+
+    # Pass 2 — Web verification (pass the same image as both front and back)
+    verified = _verify_with_ebay(client, image_content, image_content, result)
+    if verified:
+        result = verified
+
+    return result
+
+
 def analyze_card(front_path: str, back_path: str, retries: int = 3,
                   set_hint: str | None = None) -> dict:
     """

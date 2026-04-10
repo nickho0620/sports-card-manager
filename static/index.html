@@ -98,6 +98,11 @@
     .info-cta-btn.primary:hover { background:#16a34a; transform:translateY(-1px); }
     .info-cta-btn.secondary { background:rgba(255,255,255,.08); color:#f1f5f9; border:1px solid #334155; }
     .info-cta-btn.secondary:hover { background:rgba(255,255,255,.14); }
+    /* Bulk upload toggle */
+    .btoggle { position:relative;width:44px;height:24px;background:#475569;border-radius:12px;transition:background .2s;flex-shrink:0;cursor:pointer; }
+    .btoggle .bthumb { position:absolute;top:2px;left:2px;width:20px;height:20px;background:#fff;border-radius:50%;transition:transform .2s; }
+    .btoggle.bton { background:#3b82f6; }
+    .btoggle.bton .bthumb { transform:translateX(20px); }
 
     /* ── Pricing view ──────────────────────────────────────────── */
     .pricing-wrap { max-width:1080px; margin:0 auto; padding:64px 24px 96px; }
@@ -608,6 +613,60 @@
     <div class="modal-box p-6" id="modal-content"></div>
   </div>
 
+  <!-- Bulk Upload Modal -->
+  <div id="bulk-modal" class="modal-bg hidden" onclick="if(event.target===this)closeBulkUpload()">
+    <div class="modal-box p-6" style="max-width:560px;">
+      <div class="flex items-center justify-between mb-4">
+        <h2 class="text-lg font-bold">📦 Bulk Upload — Flatbed Scanner</h2>
+        <button onclick="closeBulkUpload()" class="text-slate-400 hover:text-white text-2xl leading-none">&times;</button>
+      </div>
+      <p class="text-sm text-slate-400 mb-4">Select a folder of scanned card images. Each file should contain <strong class="text-slate-200">both the front and back</strong> of one card in a single image.</p>
+
+      <div id="bulk-setup">
+        <!-- Set dropdown -->
+        <div style="margin-bottom:12px;">
+          <label style="display:block;font-size:11px;color:#94a3b8;margin-bottom:4px;font-weight:600;">Card Set (applies to all cards)</label>
+          <select id="bulk-set-hint" onchange="document.getElementById('bulk-set-custom').style.display=this.value==='Other (type below)'?'block':'none'" style="width:100%;padding:10px 12px;border-radius:10px;border:1px solid #334155;background:#1e293b;color:#f1f5f9;font-size:14px;outline:none;">
+            <option value="Unknown">Unknown</option>
+          </select>
+          <input type="text" id="bulk-set-custom" placeholder="Type set name..." style="width:100%;padding:10px 12px;border-radius:10px;border:1px solid #334155;background:#1e293b;color:#f1f5f9;font-size:14px;outline:none;margin-top:6px;display:none;box-sizing:border-box;">
+        </div>
+
+        <!-- Privacy toggle -->
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:16px;font-size:13px;color:#cbd5e1;cursor:pointer;" onclick="const t=this.querySelector('.btoggle');const on=t.classList.toggle('bton');document.getElementById('bulk-is-public').value=on?'true':'false';">
+          <div class="btoggle">
+            <div class="bthumb"></div>
+          </div>
+          <span>Make all cards public</span>
+          <input type="hidden" id="bulk-is-public" value="false">
+        </div>
+
+        <!-- Folder picker -->
+        <label style="display:block;width:100%;padding:20px;border:2px dashed #334155;border-radius:12px;text-align:center;cursor:pointer;transition:border-color .2s;margin-bottom:12px;" onmouseover="this.style.borderColor='#3b82f6'" onmouseout="this.style.borderColor='#334155'">
+          <input type="file" id="bulk-files" multiple accept="image/*,.pdf" webkitdirectory style="display:none" onchange="onBulkFilesSelected(this.files)">
+          <div style="font-size:28px;margin-bottom:6px;">📂</div>
+          <div class="text-sm font-semibold">Click to select folder</div>
+          <div class="text-xs text-slate-500 mt-1">or drag & drop image files</div>
+        </label>
+
+        <div id="bulk-file-count" class="text-xs text-slate-500 mb-3"></div>
+
+        <button id="bulk-start-btn" onclick="startBulkUpload()" disabled class="w-full py-3 rounded-xl font-semibold text-sm transition-colors" style="background:#7c3aed;color:white;opacity:.5;cursor:not-allowed;">
+          Upload All Cards
+        </button>
+      </div>
+
+      <!-- Progress section (hidden until upload starts) -->
+      <div id="bulk-progress" class="hidden">
+        <div style="background:#0f172a;border-radius:10px;height:8px;overflow:hidden;margin-bottom:12px;">
+          <div id="bulk-progress-bar" style="height:100%;background:linear-gradient(90deg,#7c3aed,#3b82f6);width:0%;transition:width .3s;border-radius:10px;"></div>
+        </div>
+        <p id="bulk-progress-text" class="text-sm text-slate-300 mb-3"></p>
+        <div id="bulk-log" style="max-height:240px;overflow-y:auto;font-size:12px;"></div>
+      </div>
+    </div>
+  </div>
+
   <!-- Hidden file inputs for image replacement (photo mode) -->
   <input type="file" id="replace-front-input" accept="image/*" class="hidden">
   <input type="file" id="replace-back-input"  accept="image/*" class="hidden">
@@ -696,6 +755,7 @@
         const initial = (currentUser.username || '?').charAt(0).toUpperCase();
         el.innerHTML = `
           <a href="/scanner" class="inline-flex items-center gap-2 bg-blue-600 hover:bg-blue-500 text-white px-4 py-2 rounded-xl font-semibold text-sm transition-colors whitespace-nowrap">📷 Scan Card</a>
+          ${(isAdmin || (currentUser.subscription_tier||'').toLowerCase() === 'unlimited') ? '<button onclick="openBulkUpload()" class="inline-flex items-center gap-2 text-white px-4 py-2 rounded-xl font-semibold text-sm transition-colors whitespace-nowrap" style="background:#7c3aed;">📦 Bulk Upload</button>' : ''}
           <div class="relative">
             <button onclick="toggleUserMenu(event)" class="user-menu-btn">
               <span class="w-7 h-7 rounded-full bg-blue-600 flex items-center justify-center text-sm font-bold">${initial}</span>
@@ -1558,6 +1618,153 @@
       // Re-sort already-loaded cards without a new fetch
       renderGrid(sortCards(allCards));
     });
+
+    // ── Bulk Upload ──────────────────────────────────────────────────────────
+    const BULK_COMMON_SETS = [
+      "Unknown",
+      "── Baseball ──",
+      "Bowman","Bowman Chrome","Bowman 1st","Bowman Draft","Bowman Heritage","Bowman Sterling",
+      "Donruss","Donruss Optic","Fleer","Leaf","Panini Prizm","Score","Select","Stadium Club",
+      "Topps","Topps Chrome","Topps Heritage","Topps Allen & Ginter","Topps Archives",
+      "Topps Finest","Topps Fire","Topps Gallery","Topps Gypsy Queen","Topps Inception",
+      "Topps Museum Collection","Topps Series 1","Topps Series 2","Topps Update",
+      "Topps Tier One","Topps Triple Threads","Topps Tribute","Upper Deck",
+      "── Basketball ──",
+      "Court Kings","Donruss","Donruss Optic","Hoops","Mosaic","National Treasures",
+      "Panini Prizm","Select","Spectra",
+      "── Football ──",
+      "Donruss","Donruss Optic","Mosaic","National Treasures","Panini Prizm","Playbook",
+      "Score","Select",
+      "── Hockey ──",
+      "O-Pee-Chee","Upper Deck","Upper Deck Series 1","Upper Deck Series 2","Upper Deck Young Guns",
+      "── Other ──",
+      "Other (type below)",
+    ];
+    let bulkFiles = [];
+    let bulkUploading = false;
+
+    function openBulkUpload() {
+      // Populate set dropdown
+      const sel = document.getElementById('bulk-set-hint');
+      if (sel.options.length <= 1) {
+        sel.innerHTML = BULK_COMMON_SETS.map(s => {
+          if (s.startsWith('──')) return `<option disabled style="font-weight:bold;color:#60a5fa;">${s}</option>`;
+          return `<option value="${s}">${s}</option>`;
+        }).join('');
+      }
+      // Reset state
+      bulkFiles = [];
+      document.getElementById('bulk-files').value = '';
+      document.getElementById('bulk-file-count').textContent = '';
+      document.getElementById('bulk-start-btn').disabled = true;
+      document.getElementById('bulk-start-btn').style.opacity = '.5';
+      document.getElementById('bulk-start-btn').style.cursor = 'not-allowed';
+      document.getElementById('bulk-setup').classList.remove('hidden');
+      document.getElementById('bulk-progress').classList.add('hidden');
+      document.getElementById('bulk-progress-bar').style.width = '0%';
+      document.getElementById('bulk-log').innerHTML = '';
+      // Remove any leftover close button from previous upload
+      const oldClose = document.getElementById('bulk-close-btn');
+      if (oldClose) oldClose.remove();
+      document.getElementById('bulk-modal').classList.remove('hidden');
+    }
+
+    function closeBulkUpload() {
+      if (bulkUploading) return; // prevent closing mid-upload
+      document.getElementById('bulk-modal').classList.add('hidden');
+    }
+
+    function onBulkFilesSelected(files) {
+      const imageExts = ['.jpg','.jpeg','.png','.webp','.bmp','.tiff','.tif','.pdf'];
+      bulkFiles = Array.from(files).filter(f => {
+        const ext = f.name.toLowerCase().slice(f.name.lastIndexOf('.'));
+        return imageExts.includes(ext);
+      });
+      const countEl = document.getElementById('bulk-file-count');
+      const btn = document.getElementById('bulk-start-btn');
+      if (bulkFiles.length === 0) {
+        countEl.textContent = 'No image files found in the selected folder.';
+        countEl.style.color = '#f87171';
+        btn.disabled = true;
+        btn.style.opacity = '.5';
+        btn.style.cursor = 'not-allowed';
+      } else {
+        countEl.textContent = `${bulkFiles.length} image${bulkFiles.length > 1 ? 's' : ''} ready to upload`;
+        countEl.style.color = '#86efac';
+        btn.disabled = false;
+        btn.style.opacity = '1';
+        btn.style.cursor = 'pointer';
+      }
+    }
+
+    async function startBulkUpload() {
+      if (bulkFiles.length === 0 || bulkUploading) return;
+      bulkUploading = true;
+
+      // Get options
+      let setHint = document.getElementById('bulk-set-hint').value;
+      if (setHint === 'Other (type below)') {
+        // If there's a custom input nearby, grab it (we'll add one if needed)
+        const custom = document.getElementById('bulk-set-custom');
+        if (custom && custom.value.trim()) setHint = custom.value.trim();
+        else setHint = '';
+      }
+      if (setHint === 'Unknown') setHint = '';
+      const isPublic = document.getElementById('bulk-is-public').value;
+
+      // Switch to progress view
+      document.getElementById('bulk-setup').classList.add('hidden');
+      document.getElementById('bulk-progress').classList.remove('hidden');
+
+      const bar = document.getElementById('bulk-progress-bar');
+      const txt = document.getElementById('bulk-progress-text');
+      const log = document.getElementById('bulk-log');
+      let success = 0;
+      let failed = 0;
+
+      for (let i = 0; i < bulkFiles.length; i++) {
+        const file = bulkFiles[i];
+        const pct = Math.round(((i) / bulkFiles.length) * 100);
+        bar.style.width = pct + '%';
+        txt.textContent = `Uploading ${i + 1} of ${bulkFiles.length}…  (${success} done, ${failed} failed)`;
+
+        const form = new FormData();
+        form.append('image', file);
+        form.append('set_hint', setHint);
+        form.append('is_public', isPublic);
+
+        try {
+          const res = await fetch('/api/cards/upload-combined', { method: 'POST', body: form });
+          if (res.ok) {
+            success++;
+            log.innerHTML += `<div style="color:#86efac;padding:3px 0;">✓ ${file.name}</div>`;
+          } else {
+            const err = await res.json().catch(() => ({}));
+            failed++;
+            log.innerHTML += `<div style="color:#f87171;padding:3px 0;">✗ ${file.name} — ${err.detail || 'Upload failed'}</div>`;
+          }
+        } catch {
+          failed++;
+          log.innerHTML += `<div style="color:#f87171;padding:3px 0;">✗ ${file.name} — Network error</div>`;
+        }
+        log.scrollTop = log.scrollHeight;
+      }
+
+      bar.style.width = '100%';
+      txt.innerHTML = `<strong>Complete!</strong>  ${success} uploaded, ${failed} failed out of ${bulkFiles.length} total.`;
+      bulkUploading = false;
+
+      // Refresh the card grid to show new cards
+      loadCards();
+
+      // Add a close button
+      const closeBtn = document.createElement('button');
+      closeBtn.id = 'bulk-close-btn';
+      closeBtn.textContent = 'Close';
+      closeBtn.style.cssText = 'margin-top:12px;width:100%;padding:11px;border-radius:10px;border:none;background:#334155;color:#f1f5f9;font-weight:600;font-size:14px;cursor:pointer;';
+      closeBtn.onclick = () => { document.getElementById('bulk-modal').classList.add('hidden'); };
+      document.getElementById('bulk-progress').appendChild(closeBtn);
+    }
 
     // ── Init ─────────────────────────────────────────────────────────────────
     checkAuth();
