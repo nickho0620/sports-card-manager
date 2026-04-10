@@ -225,7 +225,7 @@ def verification_email_html(username: str, verify_url: str) -> tuple[str, str]:
 <body>
   <div class="wrap">
     <div class="header">
-      <h1>🪙 Verify your email</h1>
+      <h1>💰 Verify your email</h1>
     </div>
     <div class="content">
       <p>Hi <strong>{username}</strong>,</p>
