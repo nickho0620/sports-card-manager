@@ -65,7 +65,11 @@ Return ONLY a valid JSON object — no markdown, no explanation:
   "description": "1-2 sentence summary including the exact set identification (e.g. '2024 Topps Series 1 1989 Topps Silver Pack Chrome insert of Juan Soto')"
 }
 
-IMPORTANT: If you are uncertain about ANY field, set it to null rather than guessing."""
+IMPORTANT: If you are uncertain about ANY field, set it to null rather than guessing.
+
+CRITICAL: If the image is NOT a sports card (e.g. it's a random photo, a non-sports item, a meme, a document, etc.), return ONLY this JSON:
+{"error": "not_a_sports_card", "description": "This does not appear to be a sports card."}
+Only analyze images that are clearly sports trading cards (baseball, basketball, football, hockey, soccer, etc.)."""
 
 VERIFY_PROMPT = """You previously analyzed this card and produced the initial identification below.
 I then searched eBay for this card and found the following listing titles from sold/active listings.
@@ -321,7 +325,11 @@ Return ONLY a valid JSON object — no markdown, no explanation:
   "description": "1-2 sentence summary including the exact set identification (e.g. '2024 Topps Series 1 1989 Topps Silver Pack Chrome insert of Juan Soto')"
 }
 
-IMPORTANT: If you are uncertain about ANY field, set it to null rather than guessing."""
+IMPORTANT: If you are uncertain about ANY field, set it to null rather than guessing.
+
+CRITICAL: If the image is NOT a sports card (e.g. it's a random photo, a non-sports item, a meme, a document, etc.), return ONLY this JSON:
+{"error": "not_a_sports_card", "description": "This does not appear to be a sports card."}
+Only analyze images that are clearly sports trading cards (baseball, basketball, football, hockey, soccer, etc.)."""
 
 
 def analyze_card_combined(image_path: str, retries: int = 3,

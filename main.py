@@ -40,7 +40,7 @@ from PIL import Image
 from sqlalchemy import or_
 
 from card_analyzer import analyze_card, analyze_card_combined
-from database import Card, PasswordResetRequest, SessionLocal, User, init_db
+from database import Card, Feedback, PageView, PasswordResetRequest, SessionLocal, User, init_db
 from ebay_pricing import get_ebay_pricing
 from email_service import (
     get_base_url,
@@ -333,6 +333,7 @@ def user_to_dict(user: User, db=None) -> dict:
         "subscription_expires_at": (user.subscription_expires_at.isoformat() + "Z") if user.subscription_expires_at else None,
         "anonymize_cards": bool(user.anonymize_cards),
         "profile_picture": user.profile_picture,
+        "is_banned": bool(user.is_banned),
         "cards_used": effective_used,
         "monthly_cards_used": scans_used,
         "total_cards": cards_used,
@@ -429,6 +430,24 @@ def verify_email(token: str = Query(...)):
                 color="#ef4444",
                 message="This verification link is invalid or has already been used.",
             ), status_code=400)
+        # Check if link has expired (24 hours)
+        if user.email_verify_sent_at:
+            age = datetime.utcnow() - user.email_verify_sent_at
+            if age > timedelta(hours=24):
+                # Generate fresh token and resend
+                user.email_verify_token = secrets.token_urlsafe(32)
+                user.email_verify_sent_at = datetime.utcnow()
+                db.commit()
+                verify_url = f"{get_base_url()}/api/auth/verify-email?token={user.email_verify_token}"
+                html_body, text_body = verification_email_html(user.username, verify_url)
+                from threading import Thread
+                Thread(target=send_email, args=(user.email, "Verify your CardMint account", html_body, text_body), daemon=True).start()
+                return HTMLResponse(_verify_page_html(
+                    title="Link Expired",
+                    icon="⏰",
+                    color="#f59e0b",
+                    message="This verification link has expired. We've just sent a fresh one to your email — please check your inbox and click the new link.",
+                ), status_code=400)
         user.email_verified = True
         user.email_verify_token = None
         db.commit()
@@ -508,6 +527,9 @@ def login(body: dict):
         ).first()
         if not user or not _verify_password(password, user.password_hash):
             raise HTTPException(status_code=401, detail="Invalid username or password")
+        # Block banned users
+        if user.is_banned:
+            raise HTTPException(status_code=403, detail="Your account has been suspended. Contact support for assistance.")
         # Block login until email is verified (admins + pre-verified accounts bypass)
         if not user.is_admin and not user.email_verified:
             raise HTTPException(
@@ -1171,6 +1193,205 @@ def admin_analytics(request: Request, time_range: str = Query(default="30", alia
         db.close()
 
 
+# ── Admin: Ban toggle ──────────────────────────────────────────────────────
+
+@app.post("/api/admin/users/{user_id}/ban")
+def admin_toggle_ban(request: Request, user_id: str, body: dict):
+    """Toggle ban status for a user. Bans by email."""
+    require_admin(request)
+    db = SessionLocal()
+    try:
+        user = db.get(User, user_id)
+        if not user:
+            raise HTTPException(status_code=404, detail="User not found")
+        if user.is_admin:
+            raise HTTPException(status_code=400, detail="Cannot ban an admin user")
+        banned = body.get("banned", not user.is_banned)
+        user.is_banned = bool(banned)
+        # Invalidate all sessions for banned user
+        if user.is_banned:
+            to_remove = [t for t, uid in _active_sessions.items() if uid == user_id]
+            for t in to_remove:
+                del _active_sessions[t]
+        db.commit()
+        return {"status": "ok", "is_banned": user.is_banned}
+    finally:
+        db.close()
+
+
+# ── Admin: Claude API Usage ────────────────────────────────────────────────
+
+@app.get("/api/admin/api-usage")
+def admin_api_usage(request: Request):
+    """Return Claude API usage info from Anthropic's API."""
+    require_admin(request)
+    import anthropic
+    api_key = os.getenv("ANTHROPIC_API_KEY", "")
+    if not api_key:
+        return {"error": "No API key configured"}
+    # Count scans this month across all users (each scan = ~2 API calls)
+    db = SessionLocal()
+    try:
+        from sqlalchemy import func
+        month_key = datetime.utcnow().strftime("%Y-%m")
+        total_scans_month = db.query(func.sum(User.scans_this_month)).filter(
+            User.scans_month_key == month_key
+        ).scalar() or 0
+        total_reprices_month = db.query(func.sum(User.reprices_this_month)).filter(
+            User.reprices_month_key == month_key
+        ).scalar() or 0
+        total_cards = db.query(Card).count()
+        analyzed_cards = db.query(Card).filter(Card.status == "complete").count()
+        return {
+            "api_key_preview": api_key[:8] + "..." + api_key[-4:] if len(api_key) > 12 else "***",
+            "model": os.getenv("CLAUDE_MODEL", "claude-sonnet-4-20250514"),
+            "scans_this_month": total_scans_month,
+            "reprices_this_month": total_reprices_month,
+            "estimated_api_calls_month": (total_scans_month * 2) + total_reprices_month,
+            "total_cards_analyzed": analyzed_cards,
+            "total_cards": total_cards,
+        }
+    finally:
+        db.close()
+
+
+# ── Admin: Traffic tracking ────────────────────────────────────────────────
+
+@app.post("/api/track")
+def track_page_view(request: Request, body: dict):
+    """Track a page view. Called from frontend JS."""
+    path = body.get("path", "/")
+    user = _current_user(request)
+    # Hash IP for privacy
+    client_ip = request.client.host if request.client else "unknown"
+    ip_hash = hashlib.sha256(client_ip.encode()).hexdigest()[:16]
+    ua = request.headers.get("user-agent", "")[:200]
+    db = SessionLocal()
+    try:
+        pv = PageView(
+            id=str(uuid.uuid4()),
+            path=path,
+            user_id=user.id if user else None,
+            ip_hash=ip_hash,
+            user_agent=ua,
+        )
+        db.add(pv)
+        db.commit()
+        return {"status": "ok"}
+    finally:
+        db.close()
+
+
+@app.get("/api/admin/traffic")
+def admin_traffic(request: Request, days: int = Query(default=30)):
+    """Return traffic analytics for admin dashboard."""
+    require_admin(request)
+    db = SessionLocal()
+    try:
+        from sqlalchemy import func, cast, Date
+        cutoff = datetime.utcnow() - timedelta(days=days)
+        # Daily page views
+        daily = db.query(
+            func.date(PageView.created_at).label("day"),
+            func.count(PageView.id).label("views"),
+            func.count(func.distinct(PageView.ip_hash)).label("unique_visitors"),
+        ).filter(
+            PageView.created_at >= cutoff
+        ).group_by(func.date(PageView.created_at)).order_by(func.date(PageView.created_at)).all()
+
+        # Top pages
+        top_pages = db.query(
+            PageView.path,
+            func.count(PageView.id).label("views"),
+        ).filter(
+            PageView.created_at >= cutoff
+        ).group_by(PageView.path).order_by(func.count(PageView.id).desc()).limit(10).all()
+
+        # Totals
+        total_views = db.query(func.count(PageView.id)).filter(PageView.created_at >= cutoff).scalar() or 0
+        unique_visitors = db.query(func.count(func.distinct(PageView.ip_hash))).filter(PageView.created_at >= cutoff).scalar() or 0
+
+        return {
+            "daily": [{"date": str(d.day), "views": d.views, "unique": d.unique_visitors} for d in daily],
+            "top_pages": [{"path": p.path, "views": p.views} for p in top_pages],
+            "total_views": total_views,
+            "unique_visitors": unique_visitors,
+        }
+    finally:
+        db.close()
+
+
+# ── Feedback ────────────────────────────────────────────────────────────────
+
+@app.post("/api/feedback")
+def submit_feedback(request: Request, body: dict):
+    """Submit user feedback."""
+    user = require_auth(request)
+    message = (body.get("message") or "").strip()
+    if not message:
+        raise HTTPException(status_code=400, detail="Message cannot be empty")
+    if len(message) > 2000:
+        raise HTTPException(status_code=400, detail="Message too long (max 2000 characters)")
+    db = SessionLocal()
+    try:
+        fb = Feedback(
+            id=str(uuid.uuid4()),
+            user_id=user.id,
+            username=user.username,
+            message=message,
+        )
+        db.add(fb)
+        db.commit()
+        return {"status": "ok", "id": fb.id}
+    finally:
+        db.close()
+
+
+@app.get("/api/feedback")
+def get_feedback(request: Request):
+    """Get feedback — users see their own, admins see all."""
+    user = require_auth(request)
+    db = SessionLocal()
+    try:
+        q = db.query(Feedback)
+        if not user.is_admin:
+            q = q.filter(Feedback.user_id == user.id)
+        items = q.order_by(Feedback.created_at.desc()).limit(100).all()
+        return [
+            {
+                "id": f.id,
+                "user_id": f.user_id,
+                "username": f.username,
+                "message": f.message,
+                "status": f.status,
+                "admin_reply": f.admin_reply,
+                "created_at": f.created_at.isoformat() + "Z" if f.created_at else None,
+            }
+            for f in items
+        ]
+    finally:
+        db.close()
+
+
+@app.patch("/api/feedback/{feedback_id}")
+def update_feedback(request: Request, feedback_id: str, body: dict):
+    """Admin can update feedback status and reply."""
+    require_admin(request)
+    db = SessionLocal()
+    try:
+        fb = db.get(Feedback, feedback_id)
+        if not fb:
+            raise HTTPException(status_code=404, detail="Feedback not found")
+        if "status" in body:
+            fb.status = body["status"]
+        if "admin_reply" in body:
+            fb.admin_reply = body["admin_reply"]
+        db.commit()
+        return {"status": "ok"}
+    finally:
+        db.close()
+
+
 # ── Subscription (stub) ─────────────────────────────────────────────────────
 
 @app.post("/api/subscription/upgrade")
@@ -1291,6 +1512,13 @@ def process_card(card_id: str):
                 card.front_image_path, card.back_image_path,
                 set_hint=card.set_hint,
             )
+            # Check if image was rejected as not a sports card
+            if analysis.get("error") == "not_a_sports_card":
+                card.status = "error"
+                card.notes = "This image does not appear to be a sports card. Please upload a valid sports card image."
+                card.is_public = False
+                db.commit()
+                return
             # Map analysis fields onto the card model
             field_map = {
                 "player_name", "year", "brand", "set_name", "subset", "insert_set",
@@ -1358,6 +1586,13 @@ def process_card_combined(card_id: str):
                 card.front_image_path,
                 set_hint=card.set_hint,
             )
+            # Check if image was rejected as not a sports card
+            if analysis.get("error") == "not_a_sports_card":
+                card.status = "error"
+                card.notes = "This image does not appear to be a sports card. Please upload a valid sports card image."
+                card.is_public = False
+                db.commit()
+                return
             field_map = {
                 "player_name", "year", "brand", "set_name", "subset", "insert_set",
                 "product_code", "card_number",
@@ -1817,6 +2052,9 @@ def update_card(request: Request, card_id: str, body: dict):
             raise HTTPException(status_code=403, detail="You can only edit your own cards")
         for key, value in body.items():
             if key in allowed:
+                # Block errored cards from being made public
+                if key == "is_public" and value and card.status == "error":
+                    raise HTTPException(status_code=400, detail="Cards with analysis errors cannot be made public. Please re-scan the card first.")
                 setattr(card, key, value)
         db.commit()
         return card_to_dict(card, db)

@@ -127,9 +127,35 @@ class User(Base):
     reprices_this_month = Column(Integer, default=0)
     reprices_month_key = Column(String)
 
+    # ── Ban ────────────────────────────────────────────────────────────────
+    is_banned = Column(Boolean, default=False)
+
     # ── Password reset (email-based) ────────────────────────────────────────
     password_reset_token = Column(String)
     password_reset_expires = Column(DateTime)
+
+
+class Feedback(Base):
+    __tablename__ = "feedback"
+
+    id = Column(String, primary_key=True)
+    user_id = Column(String, nullable=False)
+    username = Column(String, nullable=False)
+    message = Column(Text, nullable=False)
+    status = Column(String, default="new")   # "new" | "reviewed" | "done"
+    admin_reply = Column(Text)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
+class PageView(Base):
+    __tablename__ = "page_views"
+
+    id = Column(String, primary_key=True)
+    path = Column(String, nullable=False)
+    user_id = Column(String)           # null for guests
+    ip_hash = Column(String)           # hashed IP for unique visitor count
+    user_agent = Column(String)
+    created_at = Column(DateTime, default=datetime.utcnow)
 
 
 class PasswordResetRequest(Base):
@@ -193,6 +219,7 @@ def _migrate(eng):
                 "reprices_this_month": "INTEGER",
                 "reprices_month_key": "VARCHAR",
                 "profile_picture": "VARCHAR",
+                "is_banned": "BOOLEAN",
             }
             for col_name, col_type in user_cols.items():
                 if col_name not in existing:
