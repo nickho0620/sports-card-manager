@@ -428,5 +428,33 @@
     <p style="margin: 4px 0 0; font-size: 11px;">Card identification is powered by AI and may not be 100% accurate. Value estimates are approximations and should not be treated as professional appraisals.</p>
   </footer>
 
+  <script>
+    // Check if user is logged in and update nav accordingly
+    (async function() {
+      try {
+        const res = await fetch('/api/auth/me');
+        if (!res.ok) return;
+        const u = await res.json();
+        const navLinks = document.querySelector('.nav-links');
+        if (!navLinks) return;
+        const initial = (u.username || '?').charAt(0).toUpperCase();
+        const avatarHtml = u.profile_picture
+          ? `<img src="${u.profile_picture}" style="width:28px;height:28px;border-radius:50%;object-fit:cover;">`
+          : `<span style="display:inline-flex;width:28px;height:28px;border-radius:50%;background:#3b82f6;align-items:center;justify-content:center;font-size:12px;font-weight:700;color:#fff;">${initial}</span>`;
+        navLinks.innerHTML = `
+          <a href="/collection" class="btn btn-ghost">My Collection</a>
+          <a href="/profile" class="btn btn-ghost" style="display:inline-flex;align-items:center;gap:8px;">
+            ${avatarHtml} ${u.username}
+          </a>
+        `;
+      } catch {}
+    })();
+    // Track page view
+    fetch('/api/track', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ path: '/' }),
+    }).catch(() => {});
+  </script>
 </body>
 </html>

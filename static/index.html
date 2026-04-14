@@ -584,10 +584,10 @@
             <li class="muted">No CSV export</li>
             <li class="muted">Community support</li>
           </ul>
-          <a href="/register" class="pricing-btn pricing-btn-free">Sign Up Free</a>
+          <a href="/register" class="pricing-btn pricing-btn-free" id="pricing-free-btn">Sign Up Free</a>
         </div>
 
-        <div class="pricing-card featured">
+        <div class="pricing-card featured" id="pricing-pro-card">
           <div class="pricing-ribbon">Most Popular</div>
           <div class="pricing-card-header">
             <div class="pricing-tier featured-tier">Pro</div>
@@ -603,10 +603,10 @@
             <li>Re-scan &amp; re-price any card</li>
             <li>Email support</li>
           </ul>
-          <button type="button" onclick="openUpgradeModal()" class="pricing-btn pricing-btn-pro">Upgrade to Pro</button>
+          <button type="button" onclick="openUpgradeModal()" class="pricing-btn pricing-btn-pro" id="pricing-pro-btn">Upgrade to Pro</button>
         </div>
 
-        <div class="pricing-card unlim">
+        <div class="pricing-card unlim" id="pricing-unlim-card">
           <div class="pricing-card-header">
             <div class="pricing-tier unlim-tier">Unlimited</div>
             <div class="pricing-price">$15<span class="per">/month</span></div>
@@ -620,7 +620,7 @@
             <li>Advanced CSV exports</li>
             <li>Priority support</li>
           </ul>
-          <button type="button" onclick="openUpgradeModal()" class="pricing-btn pricing-btn-unlim">Go Unlimited</button>
+          <button type="button" onclick="openUpgradeModal()" class="pricing-btn pricing-btn-unlim" id="pricing-unlim-btn">Go Unlimited</button>
         </div>
       </div>
 
@@ -715,6 +715,30 @@
     </div>
   </div>
 
+  <!-- Scanner Modal (iframe overlay) -->
+  <div id="scanner-modal" class="modal-bg hidden" style="z-index:60;" onclick="if(event.target===this)closeScannerModal()">
+    <div style="width:100%;max-width:480px;height:92vh;background:#0f172a;border-radius:16px;overflow:hidden;position:relative;">
+      <button onclick="closeScannerModal()" style="position:absolute;top:12px;right:12px;z-index:10;background:rgba(0,0,0,.5);border:none;color:#fff;width:36px;height:36px;border-radius:50%;font-size:20px;cursor:pointer;display:flex;align-items:center;justify-content:center;">&times;</button>
+      <iframe id="scanner-iframe" src="" style="width:100%;height:100%;border:none;border-radius:16px;"></iframe>
+    </div>
+  </div>
+
+  <!-- Feedback Widget -->
+  <div id="feedback-widget" class="hidden" style="position:fixed;bottom:24px;right:24px;z-index:90;">
+    <button onclick="toggleFeedbackPanel()" id="feedback-fab" style="width:52px;height:52px;border-radius:50%;background:#3b82f6;border:none;color:#fff;font-size:22px;cursor:pointer;box-shadow:0 4px 20px rgba(59,130,246,.4);display:flex;align-items:center;justify-content:center;transition:transform .15s;">💬</button>
+    <div id="feedback-panel" class="hidden" style="position:absolute;bottom:64px;right:0;width:340px;background:#1e293b;border:1px solid #334155;border-radius:16px;box-shadow:0 10px 40px rgba(0,0,0,.5);overflow:hidden;">
+      <div style="padding:14px 16px;border-bottom:1px solid #334155;display:flex;align-items:center;justify-content:space-between;">
+        <span style="font-size:14px;font-weight:700;color:#f1f5f9;">Send Feedback</span>
+        <button onclick="toggleFeedbackPanel()" style="background:none;border:none;color:#94a3b8;font-size:18px;cursor:pointer;">&times;</button>
+      </div>
+      <div id="feedback-messages" style="padding:12px 16px;max-height:260px;overflow-y:auto;font-size:13px;"></div>
+      <div style="padding:10px 12px;border-top:1px solid #334155;display:flex;gap:8px;">
+        <input type="text" id="feedback-input" placeholder="Type your feedback..." maxlength="2000" style="flex:1;background:#0f172a;border:1px solid #334155;border-radius:10px;padding:9px 12px;color:#f1f5f9;font-size:13px;outline:none;" onkeydown="if(event.key==='Enter')sendFeedback()">
+        <button onclick="sendFeedback()" style="background:#3b82f6;border:none;color:#fff;padding:9px 14px;border-radius:10px;font-weight:600;font-size:13px;cursor:pointer;">Send</button>
+      </div>
+    </div>
+  </div>
+
   <!-- Hidden file inputs for image replacement (photo mode) -->
   <input type="file" id="replace-front-input" accept="image/*" class="hidden">
   <input type="file" id="replace-back-input"  accept="image/*" class="hidden">
@@ -805,8 +829,8 @@
           ? `<img src="${currentUser.profile_picture}" style="width:28px;height:28px;border-radius:50%;object-fit:cover;">`
           : `<span class="w-7 h-7 rounded-full bg-blue-600 flex items-center justify-center text-sm font-bold">${initial}</span>`;
         el.innerHTML = `
-          <a href="/scanner" class="inline-flex items-center gap-2 bg-blue-600 hover:bg-blue-500 text-white px-4 py-2 rounded-xl font-semibold text-sm transition-colors whitespace-nowrap">📷 Scan Card</a>
-          ${(isAdmin || (currentUser.subscription_tier||'').toLowerCase() === 'unlimited') ? '<button onclick="openBulkUpload()" class="inline-flex items-center gap-2 text-white px-4 py-2 rounded-xl font-semibold text-sm transition-colors whitespace-nowrap" style="background:#7c3aed;">📦 Bulk Upload</button>' : ''}
+          <button onclick="openScannerModal()" class="inline-flex items-center gap-2 bg-blue-600 hover:bg-blue-500 text-white px-4 py-2 rounded-xl font-semibold text-sm transition-colors whitespace-nowrap">📷 Scan Card</button>
+          <button onclick="handleBulkUpload()" class="inline-flex items-center gap-2 text-white px-4 py-2 rounded-xl font-semibold text-sm transition-colors whitespace-nowrap" style="background:#7c3aed;">📦 Bulk Upload</button>
           <div class="relative">
             <button onclick="toggleUserMenu(event)" class="user-menu-btn">
               ${avatarHtml}
@@ -838,6 +862,7 @@
           </div>`;
         navMine.classList.remove('hidden');
         document.getElementById('nav-pricing').classList.add('hidden');
+        document.getElementById('feedback-widget').classList.remove('hidden');
         // Default to My Collection for signed-in users on first load
         if (!window._authViewSet) { switchView('mine'); window._authViewSet = true; }
 
@@ -882,6 +907,27 @@
           banner.classList.remove('hidden');
         }
         document.getElementById('guest-banner').classList.add('hidden');
+
+        // Update pricing page buttons based on current tier
+        const userTier = (currentUser.subscription_tier || 'free').toLowerCase();
+        const freeBtn = document.getElementById('pricing-free-btn');
+        const proBtn = document.getElementById('pricing-pro-btn');
+        const unlimBtn = document.getElementById('pricing-unlim-btn');
+        if (freeBtn && proBtn && unlimBtn) {
+          if (userTier === 'free') {
+            freeBtn.textContent = '✓ Current Plan'; freeBtn.style.opacity = '.6'; freeBtn.onclick = null;
+            proBtn.textContent = 'Upgrade to Pro'; proBtn.style.opacity = '1';
+            unlimBtn.textContent = 'Go Unlimited'; unlimBtn.style.opacity = '1';
+          } else if (userTier === 'pro') {
+            freeBtn.textContent = 'Downgrade'; freeBtn.style.opacity = '.6';
+            proBtn.textContent = '✓ Current Plan'; proBtn.style.opacity = '.6'; proBtn.onclick = null;
+            unlimBtn.textContent = 'Upgrade to Unlimited'; unlimBtn.style.opacity = '1';
+          } else if (userTier === 'unlimited') {
+            freeBtn.textContent = 'Downgrade'; freeBtn.style.opacity = '.6';
+            proBtn.textContent = 'Downgrade'; proBtn.style.opacity = '.6';
+            unlimBtn.textContent = '✓ Current Plan'; unlimBtn.style.opacity = '.6'; unlimBtn.onclick = null;
+          }
+        }
       } else {
         el.innerHTML = `
           <a href="/register" class="inline-flex items-center gap-2 bg-green-600 hover:bg-green-500 text-white px-4 py-2 rounded-xl font-semibold text-sm transition-colors shadow-lg whitespace-nowrap">✨ Sign Up Free</a>
@@ -1338,7 +1384,9 @@
           ${editField('Print Run', 'print_run', card.print_run, '25, 50, 99...')}
           ${editToggle('Alternate Jersey', 'has_alternate_jersey', card.has_alternate_jersey, 'jersey_description', card.jersey_description)}
           ${editToggle('Short Print', 'is_short_print', card.is_short_print)}
-          ${editToggle('Public (visible in Card Collection)', 'is_public', card.is_public)}
+          ${card.status === 'error'
+            ? '<p class="text-xs text-red-400 mt-2">⚠️ Cards with errors cannot be made public</p>'
+            : editToggle('Public (visible in Card Collection)', 'is_public', card.is_public)}
           ${editField('Notable Features', 'notable_features', card.notable_features, 'Error card, SSP...')}
           ${editable
             ? `<div class="py-1.5 border-b border-slate-700 text-sm">
@@ -1442,7 +1490,7 @@
             class="flex-1 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 font-semibold text-sm transition-colors">
             Save Details
           </button>
-          <button onclick="saveAndReprice('${card.id}')"
+          <button onclick="handleReprice('${card.id}')"
             class="flex-1 py-2.5 rounded-xl bg-green-700 hover:bg-green-600 font-semibold text-sm transition-colors">
             Save &amp; Reprice
           </button>
@@ -1852,6 +1900,105 @@
       closeBtn.onclick = () => { document.getElementById('bulk-modal').classList.add('hidden'); };
       document.getElementById('bulk-progress').appendChild(closeBtn);
     }
+
+    // ── Scanner Modal ──────────────────────────────────────────────────────
+    function openScannerModal() {
+      document.getElementById('scanner-iframe').src = '/scanner';
+      document.getElementById('scanner-modal').classList.remove('hidden');
+    }
+    function closeScannerModal() {
+      document.getElementById('scanner-modal').classList.add('hidden');
+      document.getElementById('scanner-iframe').src = '';
+      loadCards(); // refresh in case a card was scanned
+    }
+
+    // ── Bulk Upload tier gate ────────────────────────────────────────────────
+    function handleBulkUpload() {
+      if (!currentUser) return;
+      const tier = (currentUser.subscription_tier || 'free').toLowerCase();
+      if (currentUser.is_admin || tier === 'unlimited') {
+        openBulkUpload();
+      } else {
+        showToast('Bulk Upload is available for Unlimited members only.');
+        openUpgradeModal();
+      }
+    }
+
+    // ── Reprice tier gate ────────────────────────────────────────────────────
+    function handleReprice(cardId) {
+      if (!currentUser) return;
+      const tier = (currentUser.subscription_tier || 'free').toLowerCase();
+      if (tier === 'free' && !currentUser.is_admin) {
+        showToast('Repricing is not available on the Free plan. Upgrade to Pro to access this feature.');
+        openUpgradeModal();
+        return;
+      }
+      saveAndReprice(cardId);
+    }
+
+    // ── Feedback Widget ──────────────────────────────────────────────────────
+    function toggleFeedbackPanel() {
+      const panel = document.getElementById('feedback-panel');
+      panel.classList.toggle('hidden');
+      if (!panel.classList.contains('hidden')) loadFeedback();
+    }
+
+    async function loadFeedback() {
+      const container = document.getElementById('feedback-messages');
+      try {
+        const res = await fetch('/api/feedback');
+        if (!res.ok) return;
+        const items = await res.json();
+        if (items.length === 0) {
+          container.innerHTML = '<p style="color:#64748b;text-align:center;padding:20px 0;">No feedback yet. Share your thoughts!</p>';
+          return;
+        }
+        container.innerHTML = items.map(f => `
+          <div style="margin-bottom:12px;">
+            <div style="background:#0f172a;border-radius:10px;padding:10px 12px;">
+              <p style="color:#cbd5e1;margin:0;word-wrap:break-word;">${f.message}</p>
+              <p style="color:#475569;font-size:11px;margin:4px 0 0;">${new Date(f.created_at).toLocaleDateString()}</p>
+            </div>
+            ${f.admin_reply ? `<div style="background:rgba(59,130,246,.1);border:1px solid rgba(59,130,246,.2);border-radius:10px;padding:10px 12px;margin-top:6px;">
+              <p style="color:#93c5fd;font-size:11px;font-weight:600;margin:0 0 2px;">Admin Reply</p>
+              <p style="color:#cbd5e1;margin:0;">${f.admin_reply}</p>
+            </div>` : `<p style="color:#475569;font-size:11px;margin:4px 0 0 12px;font-style:italic;">${f.status === 'reviewed' ? '👀 Under review' : f.status === 'done' ? '✅ Resolved' : '⏳ Pending review'}</p>`}
+          </div>
+        `).join('');
+        container.scrollTop = container.scrollHeight;
+      } catch { container.innerHTML = '<p style="color:#64748b;text-align:center;">Could not load feedback.</p>'; }
+    }
+
+    async function sendFeedback() {
+      const input = document.getElementById('feedback-input');
+      const msg = input.value.trim();
+      if (!msg) return;
+      input.disabled = true;
+      try {
+        const res = await fetch('/api/feedback', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ message: msg }),
+        });
+        if (res.ok) {
+          input.value = '';
+          showToast('Feedback sent!');
+          loadFeedback();
+        } else {
+          const err = await res.json().catch(() => ({}));
+          showToast(err.detail || 'Could not send feedback');
+        }
+      } catch { showToast('Connection error'); }
+      input.disabled = false;
+      input.focus();
+    }
+
+    // ── Page view tracking ───────────────────────────────────────────────────
+    fetch('/api/track', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ path: window.location.pathname }),
+    }).catch(() => {});
 
     // ── Init ─────────────────────────────────────────────────────────────────
     checkAuth();

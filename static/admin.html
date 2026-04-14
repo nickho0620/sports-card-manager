@@ -64,6 +64,9 @@
       <button class="tab" onclick="switchTab('cards')" id="tab-cards">🃏 Cards</button>
       <button class="tab" onclick="switchTab('create')" id="tab-create">➕ New User</button>
       <button class="tab" onclick="switchTab('analytics')" id="tab-analytics">📊 Analytics</button>
+      <button class="tab" onclick="switchTab('api')" id="tab-api">🤖 API Usage</button>
+      <button class="tab" onclick="switchTab('traffic')" id="tab-traffic">📈 Traffic</button>
+      <button class="tab" onclick="switchTab('feedback')" id="tab-feedback">💬 Feedback</button>
     </div>
 
     <!-- USERS TAB -->
@@ -202,6 +205,42 @@
         </div>
       </div>
     </div>
+
+    <!-- API USAGE TAB -->
+    <div id="panel-api" class="panel hidden">
+      <h2 class="font-bold text-lg mb-4">Claude API Usage</h2>
+      <div id="api-usage-content">
+        <p class="text-slate-400">Loading…</p>
+      </div>
+    </div>
+
+    <!-- TRAFFIC TAB -->
+    <div id="panel-traffic" class="panel hidden">
+      <h2 class="font-bold text-lg mb-4">Website Traffic</h2>
+      <div class="flex items-center gap-2 mb-4">
+        <label class="text-xs text-slate-400">Period:</label>
+        <select id="traffic-days" class="input" onchange="loadTraffic()">
+          <option value="7">Last 7 days</option>
+          <option value="30" selected>Last 30 days</option>
+          <option value="90">Last 90 days</option>
+          <option value="365">Last year</option>
+        </select>
+      </div>
+      <div id="traffic-stats" class="grid grid-cols-2 gap-3 mb-4"></div>
+      <div id="traffic-chart" style="position:relative;height:260px;background:#0f172a;border-radius:12px;padding:16px;border:1px solid #334155;margin-bottom:16px;">
+        <canvas id="canvas-traffic" style="width:100%;height:100%;"></canvas>
+      </div>
+      <h3 class="text-sm font-semibold text-slate-400 uppercase tracking-wider mb-2">Top Pages</h3>
+      <div id="traffic-top-pages"></div>
+    </div>
+
+    <!-- FEEDBACK TAB -->
+    <div id="panel-feedback" class="panel hidden">
+      <h2 class="font-bold text-lg mb-4">User Feedback</h2>
+      <div id="feedback-list">
+        <p class="text-slate-400">Loading…</p>
+      </div>
+    </div>
   </main>
 
   <!-- Toast -->
@@ -281,12 +320,17 @@
 
     // ── Tab switching ───────────────────────────────────────────────────────
     function switchTab(tab) {
-      ['users','cards','create','analytics'].forEach(t => {
-        document.getElementById('tab-' + t).classList.toggle('active', t === tab);
-        document.getElementById('panel-' + t).classList.toggle('hidden', t !== tab);
+      ['users','cards','create','analytics','api','traffic','feedback'].forEach(t => {
+        const tabEl = document.getElementById('tab-' + t);
+        const panelEl = document.getElementById('panel-' + t);
+        if (tabEl) tabEl.classList.toggle('active', t === tab);
+        if (panelEl) panelEl.classList.toggle('hidden', t !== tab);
       });
       if (tab === 'cards' && allCards.length === 0) loadCardsTab();
       if (tab === 'analytics') loadAnalytics();
+      if (tab === 'api') loadApiUsage();
+      if (tab === 'traffic') loadTraffic();
+      if (tab === 'feedback') loadAdminFeedback();
     }
 
     // ── Users tab ───────────────────────────────────────────────────────────
@@ -334,7 +378,7 @@
         return `
           <tr>
             <td>
-              <div class="font-semibold">${u.username}${isMe ? ' <span class="text-xs text-slate-500">(you)</span>' : ''}</div>
+              <div class="font-semibold">${u.username}${isMe ? ' <span class="text-xs text-slate-500">(you)</span>' : ''}${u.is_banned ? ' <span class="badge-tag" style="background:#7f1d1d;color:#fca5a5;">BANNED</span>' : ''}</div>
               ${u.phone ? `<div class="text-xs text-slate-500">${u.phone}</div>` : ''}
             </td>
             <td class="text-slate-300">${fullName || '<span class="text-slate-500">—</span>'}</td>
@@ -358,6 +402,7 @@
                 `}
                 <button onclick="openResetPw('${u.id}','${u.username}')" class="btn btn-ghost text-xs">Reset PW</button>
                 ${isMe ? '' : `<button onclick="deleteUser('${u.id}','${u.username}')" class="btn btn-danger text-xs">Delete</button>`}
+                ${(!u.is_admin && !isMe) ? `<button onclick="toggleBan('${u.id}', ${!u.is_banned})" class="btn ${u.is_banned ? 'btn-success' : 'btn-danger'} text-xs">${u.is_banned ? 'Unban' : 'Ban'}</button>` : ''}
               </div>
             </td>
           </tr>`;
@@ -684,6 +729,196 @@
           ctx.restore();
         }
       });
+    }
+
+    // ── Ban toggle ─────────────────────────────────────────────────────────
+    async function toggleBan(userId, ban) {
+      const action = ban ? 'ban' : 'unban';
+      if (!confirm(`Are you sure you want to ${action} this user?`)) return;
+      const res = await fetch('/api/admin/users/' + userId + '/ban', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ banned: ban }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        showToast(data.is_banned ? 'User banned' : 'User unbanned');
+        loadUsers();
+      } else {
+        const d = await res.json().catch(() => ({}));
+        showToast(d.detail || 'Failed');
+      }
+    }
+
+    // ── API Usage tab ───────────────────────────────────────────────────────
+    async function loadApiUsage() {
+      const el = document.getElementById('api-usage-content');
+      el.innerHTML = '<p class="text-slate-400">Loading…</p>';
+      try {
+        const res = await fetch('/api/admin/api-usage');
+        const d = await res.json();
+        if (d.error) {
+          el.innerHTML = `<p class="text-yellow-400">⚠️ ${d.error}</p>`;
+          return;
+        }
+        el.innerHTML = `
+          <div class="grid grid-cols-2 md:grid-cols-3 gap-3 mb-6">
+            <div class="stat-card">
+              <div class="stat-label">API Key</div>
+              <div class="text-sm font-mono text-slate-300 mt-1">${d.api_key_preview}</div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-label">Model</div>
+              <div class="text-sm font-mono text-slate-300 mt-1">${d.model}</div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-label">Total Cards Analyzed</div>
+              <div class="stat-value">${d.total_cards_analyzed}</div>
+              <div class="text-xs text-slate-500 mt-1">of ${d.total_cards} total</div>
+            </div>
+          </div>
+          <h3 class="text-sm font-semibold text-slate-400 uppercase tracking-wider mb-3">This Month</h3>
+          <div class="grid grid-cols-2 md:grid-cols-3 gap-3">
+            <div class="stat-card">
+              <div class="stat-label">Scans</div>
+              <div class="stat-value text-blue-400">${d.scans_this_month}</div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-label">Reprices</div>
+              <div class="stat-value text-purple-400">${d.reprices_this_month}</div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-label">Est. API Calls</div>
+              <div class="stat-value text-amber-400">${d.estimated_api_calls_month}</div>
+              <div class="text-xs text-slate-500 mt-1">(scans×2 + reprices)</div>
+            </div>
+          </div>
+        `;
+      } catch (e) {
+        el.innerHTML = '<p class="text-red-400">Failed to load API usage data</p>';
+        console.error('API usage load failed', e);
+      }
+    }
+
+    // ── Traffic tab ──────────────────────────────────────────────────────────
+    async function loadTraffic() {
+      const days = document.getElementById('traffic-days').value;
+      const statsEl = document.getElementById('traffic-stats');
+      const topEl = document.getElementById('traffic-top-pages');
+      statsEl.innerHTML = '';
+      topEl.innerHTML = '<p class="text-slate-400">Loading…</p>';
+      try {
+        const res = await fetch('/api/admin/traffic?days=' + days);
+        if (!res.ok) return;
+        const d = await res.json();
+
+        // Summary stats
+        statsEl.innerHTML = `
+          <div class="stat-card"><div class="stat-label">Total Page Views</div><div class="stat-value">${d.total_views}</div></div>
+          <div class="stat-card"><div class="stat-label">Unique Visitors</div><div class="stat-value">${d.unique_visitors}</div></div>
+        `;
+
+        // Draw chart
+        const series = d.daily.map(day => ({ label: day.date.slice(5), count: day.views }));
+        if (series.length) {
+          drawLineChart('canvas-traffic', series, '#f59e0b');
+        } else {
+          const canvas = document.getElementById('canvas-traffic');
+          const ctx = canvas.getContext('2d');
+          ctx.clearRect(0, 0, canvas.width, canvas.height);
+          ctx.fillStyle = '#475569';
+          ctx.font = '13px sans-serif';
+          ctx.textAlign = 'center';
+          ctx.fillText('No traffic data yet', canvas.width / 4, canvas.height / 4);
+        }
+
+        // Top pages table
+        if (d.top_pages.length) {
+          topEl.innerHTML = `
+            <table>
+              <thead><tr><th>Page</th><th>Views</th></tr></thead>
+              <tbody>
+                ${d.top_pages.map(p => `<tr><td class="font-mono text-sm">${p.path}</td><td class="text-slate-300">${p.views}</td></tr>`).join('')}
+              </tbody>
+            </table>
+          `;
+        } else {
+          topEl.innerHTML = '<p class="text-slate-500">No page views recorded yet.</p>';
+        }
+      } catch (e) {
+        topEl.innerHTML = '<p class="text-red-400">Failed to load traffic data</p>';
+        console.error('Traffic load failed', e);
+      }
+    }
+
+    // ── Feedback tab ─────────────────────────────────────────────────────────
+    async function loadAdminFeedback() {
+      const el = document.getElementById('feedback-list');
+      el.innerHTML = '<p class="text-slate-400">Loading…</p>';
+      try {
+        const res = await fetch('/api/feedback');
+        const items = await res.json();
+        if (!items.length) {
+          el.innerHTML = '<p class="text-slate-500">No feedback yet.</p>';
+          return;
+        }
+        el.innerHTML = items.map(f => {
+          const date = f.created_at ? new Date(f.created_at).toLocaleString() : '';
+          const statusColor = f.status === 'done' ? 'text-green-400' : f.status === 'reviewed' ? 'text-blue-400' : 'text-yellow-400';
+          return `
+            <div style="background:#0f172a;border:1px solid #334155;border-radius:12px;padding:16px;margin-bottom:12px;">
+              <div class="flex items-center justify-between mb-2 flex-wrap gap-2">
+                <div>
+                  <span class="font-semibold">${f.username}</span>
+                  <span class="text-xs text-slate-500 ml-2">${date}</span>
+                </div>
+                <div class="flex items-center gap-2">
+                  <span class="text-xs ${statusColor} font-semibold uppercase">${f.status}</span>
+                  <select onchange="updateFeedbackStatus('${f.id}', this.value)" class="input text-xs" style="min-width:100px;">
+                    <option value="new" ${f.status==='new'?'selected':''}>New</option>
+                    <option value="reviewed" ${f.status==='reviewed'?'selected':''}>Reviewed</option>
+                    <option value="done" ${f.status==='done'?'selected':''}>Done</option>
+                  </select>
+                </div>
+              </div>
+              <p class="text-slate-300 text-sm mb-3">${f.message}</p>
+              <div class="flex items-center gap-2">
+                <input type="text" id="reply-${f.id}" class="input flex-1 text-sm" placeholder="Admin reply…" value="${f.admin_reply || ''}">
+                <button onclick="sendAdminReply('${f.id}')" class="btn btn-primary text-xs">Reply</button>
+              </div>
+              ${f.admin_reply ? `<div class="mt-2 text-xs text-slate-400">📩 Reply: <span class="text-slate-300">${f.admin_reply}</span></div>` : ''}
+            </div>
+          `;
+        }).join('');
+      } catch (e) {
+        el.innerHTML = '<p class="text-red-400">Failed to load feedback</p>';
+        console.error('Feedback load failed', e);
+      }
+    }
+
+    async function updateFeedbackStatus(id, status) {
+      const res = await fetch('/api/feedback/' + id, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status }),
+      });
+      if (res.ok) showToast('Status updated');
+      else showToast('Failed to update status');
+    }
+
+    async function sendAdminReply(id) {
+      const input = document.getElementById('reply-' + id);
+      const reply = input.value.trim();
+      if (!reply) { showToast('Reply cannot be empty'); return; }
+      const res = await fetch('/api/feedback/' + id, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ admin_reply: reply, status: 'reviewed' }),
+      });
+      if (res.ok) {
+        showToast('Reply sent');
+        loadAdminFeedback();
+      } else showToast('Failed to send reply');
     }
 
     init();
