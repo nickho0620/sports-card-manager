@@ -1911,6 +1911,9 @@
       document.getElementById('scanner-iframe').src = '';
       loadCards(); // refresh in case a card was scanned
     }
+    window.addEventListener('message', (e) => {
+      if (e.data === 'closeScannerModal') closeScannerModal();
+    });
 
     // ── Bulk Upload tier gate ────────────────────────────────────────────────
     function handleBulkUpload() {
