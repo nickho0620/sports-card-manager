@@ -4,6 +4,9 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Admin Console — CardMint</title>
+  <link rel="icon" type="image/x-icon" href="/static/favicon.ico">
+  <link rel="icon" type="image/png" sizes="192x192" href="/static/favicon.png">
+  <link rel="icon" type="image/png" sizes="32x32" href="/static/favicon-32.png">
   <link rel="stylesheet" href="/static/styles.css">
   <style>
     body { background:#0f172a; color:#f1f5f9; min-height:100vh; }
@@ -891,6 +894,7 @@
               <div class="flex items-center gap-2">
                 <input type="text" id="reply-${f.id}" class="input flex-1 text-sm" placeholder="Admin reply…" value="${f.admin_reply || ''}">
                 <button onclick="sendAdminReply('${f.id}')" class="btn btn-primary text-xs">Reply</button>
+                <button onclick="deleteFeedback('${f.id}')" class="btn btn-danger text-xs" title="Delete feedback">🗑️ Delete</button>
               </div>
               ${f.admin_reply ? `<div class="mt-2 text-xs text-slate-400">📩 Reply: <span class="text-slate-300">${f.admin_reply}</span></div>` : ''}
             </div>
@@ -910,6 +914,17 @@
       });
       if (res.ok) showToast('Status updated');
       else showToast('Failed to update status');
+    }
+
+    async function deleteFeedback(id) {
+      if (!confirm('Delete this feedback permanently?')) return;
+      try {
+        const res = await fetch('/api/feedback/' + id, { method: 'DELETE' });
+        if (res.ok) {
+          showToast('Feedback deleted');
+          loadAdminFeedback();
+        } else showToast('Failed to delete feedback');
+      } catch { showToast('Connection error'); }
     }
 
     async function sendAdminReply(id) {

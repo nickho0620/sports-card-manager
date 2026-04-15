@@ -1392,6 +1392,22 @@ def update_feedback(request: Request, feedback_id: str, body: dict):
         db.close()
 
 
+@app.delete("/api/feedback/{feedback_id}")
+def delete_feedback(request: Request, feedback_id: str):
+    """Admin can delete feedback."""
+    require_admin(request)
+    db = SessionLocal()
+    try:
+        fb = db.get(Feedback, feedback_id)
+        if not fb:
+            raise HTTPException(status_code=404, detail="Feedback not found")
+        db.delete(fb)
+        db.commit()
+        return {"status": "ok"}
+    finally:
+        db.close()
+
+
 # ── Subscription (stub) ─────────────────────────────────────────────────────
 
 @app.post("/api/subscription/upgrade")
