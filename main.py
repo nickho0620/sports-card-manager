@@ -1598,10 +1598,19 @@ def process_card_combined(card_id: str):
         db.commit()
 
         try:
-            analysis = analyze_card_combined(
-                card.front_image_path,
-                set_hint=card.set_hint,
-            )
+            # Use separate front+back analyzer when both pages were extracted
+            # (e.g. multi-page TIFF), otherwise fall back to combined single-image mode.
+            if card.back_image_path:
+                analysis = analyze_card(
+                    card.front_image_path,
+                    card.back_image_path,
+                    set_hint=card.set_hint,
+                )
+            else:
+                analysis = analyze_card_combined(
+                    card.front_image_path,
+                    set_hint=card.set_hint,
+                )
             # Check if image was rejected as not a sports card
             if analysis.get("error") == "not_a_sports_card":
                 card.status = "error"
@@ -1698,6 +1707,33 @@ def _resize_image_bytes(raw_bytes: bytes) -> bytes:
     buf = io.BytesIO()
     img.save(buf, format="JPEG", quality=85)
     return buf.getvalue()
+
+
+def _pil_to_jpeg_bytes(img: Image.Image) -> bytes:
+    """Convert a PIL image to resized JPEG bytes (max 2000px)."""
+    img = img.convert("RGB")
+    max_dim = 2000
+    w, h = img.size
+    if max(w, h) > max_dim:
+        scale = max_dim / max(w, h)
+        img = img.resize((int(w * scale), int(h * scale)), Image.LANCZOS)
+    buf = io.BytesIO()
+    img.save(buf, format="JPEG", quality=85)
+    return buf.getvalue()
+
+
+def _extract_tif_frames(raw_bytes: bytes) -> tuple[bytes, bytes | None]:
+    """Extract front and (if present) back frames from a TIFF file.
+    Returns (front_jpeg_bytes, back_jpeg_bytes_or_None)."""
+    img = Image.open(io.BytesIO(raw_bytes))
+    n_frames = getattr(img, "n_frames", 1)
+    img.seek(0)
+    front = _pil_to_jpeg_bytes(img.copy())
+    back = None
+    if n_frames >= 2:
+        img.seek(1)
+        back = _pil_to_jpeg_bytes(img.copy())
+    return front, back
 
 
 @app.get("/api/cards")
@@ -2011,27 +2047,48 @@ async def upload_card_combined(
     card_id = str(uuid.uuid4())
 
     raw = await image.read()
-    image_bytes = _resize_image_bytes(raw)
+
+    # Detect multi-page TIFF (flatbed scanner front + back in one file)
+    filename = (image.filename or "").lower()
+    is_tif = filename.endswith(".tif") or filename.endswith(".tiff")
+    if is_tif:
+        front_bytes, back_bytes = _extract_tif_frames(raw)
+    else:
+        front_bytes = _resize_image_bytes(raw)
+        back_bytes = None
 
     if USE_CLOUDINARY:
         result = cloudinary.uploader.upload(
-            image_bytes, folder=f"cards/{card_id}", public_id="front",
+            front_bytes, folder=f"cards/{card_id}", public_id="front",
             resource_type="image",
         )
         image_path = result["secure_url"]
+        back_path = None
+        if back_bytes is not None:
+            back_result = cloudinary.uploader.upload(
+                back_bytes, folder=f"cards/{card_id}", public_id="back",
+                resource_type="image",
+            )
+            back_path = back_result["secure_url"]
     else:
         card_dir = os.path.join(UPLOAD_DIR, card_id)
         os.makedirs(card_dir, exist_ok=True)
         fp = os.path.join(card_dir, "front.jpg")
         async with aiofiles.open(fp, "wb") as f:
-            await f.write(image_bytes)
+            await f.write(front_bytes)
         image_path = fp
+        back_path = None
+        if back_bytes is not None:
+            bp = os.path.join(card_dir, "back.jpg")
+            async with aiofiles.open(bp, "wb") as f:
+                await f.write(back_bytes)
+            back_path = bp
 
     db = SessionLocal()
     card = Card(
         id=card_id,
         front_image_path=image_path,
-        back_image_path=None,
+        back_image_path=back_path,
         status="pending",
         owner_id=user.id,
         set_hint=set_hint.strip() or None,
