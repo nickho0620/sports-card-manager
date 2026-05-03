@@ -40,8 +40,9 @@ from PIL import Image
 from sqlalchemy import or_
 
 from card_analyzer import analyze_card, analyze_card_combined
-from database import Card, Feedback, PageView, PasswordResetRequest, SessionLocal, User, init_db
+from database import Card, Feedback, PageView, PasswordResetRequest, PriceHistory, SessionLocal, User, init_db
 from ebay_pricing import get_ebay_pricing
+from multi_source_pricing import get_multi_source_pricing
 from email_service import (
     get_base_url,
     password_reset_email_html,
@@ -1556,26 +1557,13 @@ def process_card(card_id: str):
             db.commit()
             return
 
-        # Step 2 — eBay pricing
+        # Step 2 — Multi-source pricing
         card.status = "pricing"
         db.commit()
 
         try:
-            pricing = get_ebay_pricing(card)
-            if pricing:
-                card.ebay_avg_sale = pricing["avg"]
-                card.ebay_low = pricing["low"]
-                card.ebay_high = pricing["high"]
-                card.ebay_num_sales = pricing["num_sales"]
-                card.ebay_last_checked = datetime.utcnow()
-                card.ebay_search_query = pricing["search_query"]
-                card.ebay_search_url = pricing.get("search_url")
-                card.pricing_source = pricing.get("source")
-                card.estimated_price = pricing["avg"]
-                card.graded_avg = pricing.get("graded_avg")
-                card.graded_low = pricing.get("graded_low")
-                card.graded_high = pricing.get("graded_high")
-                card.graded_num_sales = pricing.get("graded_num_sales")
+            pricing = get_multi_source_pricing(card)
+            _apply_pricing(db, card, pricing)
         except Exception:
             pass  # Pricing failure is non-fatal
 
@@ -1642,21 +1630,8 @@ def process_card_combined(card_id: str):
         db.commit()
 
         try:
-            pricing = get_ebay_pricing(card)
-            if pricing:
-                card.ebay_avg_sale = pricing["avg"]
-                card.ebay_low = pricing["low"]
-                card.ebay_high = pricing["high"]
-                card.ebay_num_sales = pricing["num_sales"]
-                card.ebay_last_checked = datetime.utcnow()
-                card.ebay_search_query = pricing["search_query"]
-                card.ebay_search_url = pricing.get("search_url")
-                card.pricing_source = pricing.get("source")
-                card.estimated_price = pricing["avg"]
-                card.graded_avg = pricing.get("graded_avg")
-                card.graded_low = pricing.get("graded_low")
-                card.graded_high = pricing.get("graded_high")
-                card.graded_num_sales = pricing.get("graded_num_sales")
+            pricing = get_multi_source_pricing(card)
+            _apply_pricing(db, card, pricing)
         except Exception:
             pass
 
@@ -1668,30 +1643,78 @@ def process_card_combined(card_id: str):
 
 
 def refresh_pricing(card_id: str):
-    """Re-run eBay pricing for an existing card."""
+    """Re-run multi-source pricing for an existing card."""
     db = SessionLocal()
     try:
         card = db.get(Card, card_id)
         if not card:
             return
-        pricing = get_ebay_pricing(card)
-        if pricing:
-            card.ebay_avg_sale = pricing["avg"]
-            card.ebay_low = pricing["low"]
-            card.ebay_high = pricing["high"]
-            card.ebay_num_sales = pricing["num_sales"]
-            card.ebay_last_checked = datetime.utcnow()
-            card.ebay_search_query = pricing["search_query"]
-            card.ebay_search_url = pricing.get("search_url")
-            card.pricing_source = pricing.get("source")
-            card.estimated_price = pricing["avg"]
-            card.graded_avg = pricing.get("graded_avg")
-            card.graded_low = pricing.get("graded_low")
-            card.graded_high = pricing.get("graded_high")
-            card.graded_num_sales = pricing.get("graded_num_sales")
-            db.commit()
+        pricing = get_multi_source_pricing(card)
+        _apply_pricing(db, card, pricing)
+        db.commit()
     finally:
         db.close()
+
+
+def _apply_pricing(db, card, pricing: dict) -> None:
+    """
+    Store a multi-source pricing result on the card record and write a
+    PriceHistory snapshot row. Call inside an open db session before commit.
+    """
+    if not pricing:
+        return
+
+    # ── Standard pricing fields (backwards-compatible) ───────────────────────
+    card.ebay_avg_sale = pricing.get("avg")
+    card.ebay_low = pricing.get("low")
+    card.ebay_high = pricing.get("high")
+    card.ebay_num_sales = pricing.get("num_sales")
+    card.ebay_last_checked = datetime.utcnow()
+    card.ebay_search_query = pricing.get("search_query")
+    card.ebay_search_url = pricing.get("search_url")
+    card.pricing_source = pricing.get("source")
+    card.estimated_price = pricing.get("avg")
+    card.graded_avg = pricing.get("graded_avg")
+    card.graded_low = pricing.get("graded_low")
+    card.graded_high = pricing.get("graded_high")
+    card.graded_num_sales = pricing.get("graded_num_sales")
+
+    # ── Multi-source extras ───────────────────────────────────────────────────
+    card.psa10_avg = pricing.get("psa10_avg")
+    card.psa10_low = pricing.get("psa10_low")
+    card.psa10_high = pricing.get("psa10_high")
+    card.pricing_sources_used = pricing.get("sources_used")
+
+    last_sale_price = pricing.get("last_sale_price")
+    last_sale_date = pricing.get("last_sale_date")
+    last_sale_source = pricing.get("last_sale_source")
+    if last_sale_price:
+        card.last_sale_price = last_sale_price
+        card.last_sale_date = last_sale_date
+        card.last_sale_source = last_sale_source
+
+    # ── Price history snapshot ────────────────────────────────────────────────
+    snapshot = PriceHistory(
+        id=str(uuid.uuid4()),
+        card_id=card.id,
+        raw_avg=pricing.get("avg"),
+        raw_low=pricing.get("low"),
+        raw_high=pricing.get("high"),
+        raw_num_sales=pricing.get("num_sales"),
+        graded_avg=pricing.get("graded_avg"),
+        graded_low=pricing.get("graded_low"),
+        graded_high=pricing.get("graded_high"),
+        graded_num_sales=pricing.get("graded_num_sales"),
+        psa10_avg=pricing.get("psa10_avg"),
+        psa10_low=pricing.get("psa10_low"),
+        psa10_high=pricing.get("psa10_high"),
+        last_sale_price=last_sale_price,
+        last_sale_date=last_sale_date,
+        last_sale_source=last_sale_source,
+        sources_used=pricing.get("sources_used"),
+        primary_source=pricing.get("source"),
+    )
+    db.add(snapshot)
 
 
 # ── API Routes ───────────────────────────────────────────────────────────────
@@ -1857,6 +1880,122 @@ def get_card(card_id: str):
         if not card:
             raise HTTPException(status_code=404, detail="Card not found")
         return card_to_dict(card, db)
+    finally:
+        db.close()
+
+
+@app.get("/api/cards/{card_id}/price-history")
+def get_price_history(
+    request: Request,
+    card_id: str,
+    days: int = Query(default=90, le=365),
+):
+    """
+    Return price history snapshots for a card — used to power price-over-time
+    charts and the last-sale display on card detail pages.
+
+    Query params:
+      days  — how far back to look (default 90, max 365)
+    """
+    user = require_auth(request)
+    db = SessionLocal()
+    try:
+        card = db.get(Card, card_id)
+        if not card:
+            raise HTTPException(status_code=404, detail="Card not found")
+        # Only owner or admin can see price history
+        if not user.is_admin and card.owner_id != user.id:
+            raise HTTPException(status_code=403, detail="Not your card")
+
+        cutoff = datetime.utcnow() - timedelta(days=days)
+        rows = (
+            db.query(PriceHistory)
+            .filter(
+                PriceHistory.card_id == card_id,
+                PriceHistory.checked_at >= cutoff,
+            )
+            .order_by(PriceHistory.checked_at.asc())
+            .all()
+        )
+
+        return [
+            {
+                "date": r.checked_at.isoformat() + "Z" if r.checked_at else None,
+                "raw_avg": r.raw_avg,
+                "raw_low": r.raw_low,
+                "raw_high": r.raw_high,
+                "raw_num_sales": r.raw_num_sales,
+                "graded_avg": r.graded_avg,
+                "graded_low": r.graded_low,
+                "graded_high": r.graded_high,
+                "graded_num_sales": r.graded_num_sales,
+                "psa10_avg": r.psa10_avg,
+                "psa10_low": r.psa10_low,
+                "psa10_high": r.psa10_high,
+                "last_sale_price": r.last_sale_price,
+                "last_sale_date": r.last_sale_date.isoformat() + "Z" if r.last_sale_date else None,
+                "last_sale_source": r.last_sale_source,
+                "sources_used": r.sources_used,
+            }
+            for r in rows
+        ]
+    finally:
+        db.close()
+
+
+@app.get("/api/portfolio/value-history")
+def get_portfolio_value_history(
+    request: Request,
+    days: int = Query(default=90, le=365),
+):
+    """
+    Aggregate daily portfolio value across all of the user's cards.
+    Returns one data point per day showing total estimated collection value,
+    enabling a "portfolio value over time" chart on the dashboard.
+    """
+    user = require_auth(request)
+    db = SessionLocal()
+    try:
+        from sqlalchemy import func, text as sa_text
+
+        cutoff = datetime.utcnow() - timedelta(days=days)
+
+        # Get all card IDs owned by this user
+        card_ids = [
+            c.id for c in db.query(Card.id).filter(Card.owner_id == user.id).all()
+        ]
+        if not card_ids:
+            return []
+
+        # For each day, sum the latest raw_avg snapshot per card
+        rows = (
+            db.query(PriceHistory)
+            .filter(
+                PriceHistory.card_id.in_(card_ids),
+                PriceHistory.checked_at >= cutoff,
+            )
+            .order_by(PriceHistory.checked_at.asc())
+            .all()
+        )
+
+        # Group by date (day bucket) → pick latest snapshot per card per day → sum
+        from collections import defaultdict
+        by_day: dict[str, dict[str, float]] = defaultdict(dict)
+        for r in rows:
+            if not r.checked_at:
+                continue
+            day = r.checked_at.strftime("%Y-%m-%d")
+            price = r.raw_avg or r.graded_avg or 0
+            # Keep latest snapshot per card per day
+            if r.card_id not in by_day[day] or price > 0:
+                by_day[day][r.card_id] = price
+
+        result = []
+        for day in sorted(by_day.keys()):
+            total = round(sum(by_day[day].values()), 2)
+            result.append({"date": day, "total_value": total, "card_count": len(by_day[day])})
+
+        return result
     finally:
         db.close()
 

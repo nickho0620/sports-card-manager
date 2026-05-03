@@ -86,6 +86,15 @@ class Card(Base):
     # the AI narrow down the year/parallel. Free-form text.
     set_hint = Column(String)
 
+    # ── Multi-source pricing extras ──────────────────────────────────────────
+    psa10_avg = Column(Float)             # PSA 10 average from PSA APR
+    psa10_low = Column(Float)
+    psa10_high = Column(Float)
+    last_sale_price = Column(Float)       # most recent confirmed sale price
+    last_sale_date = Column(DateTime)     # date of that sale
+    last_sale_source = Column(String)     # "ebay_sold" | "psa_apr" | "heritage" | "pwcc"
+    pricing_sources_used = Column(String) # comma-separated: "ebay_sold,psa_apr,heritage"
+
     # ── Raw Data ─────────────────────────────────────────────────────────────
     raw_analysis = Column(Text)   # full JSON from Gemini
     notes = Column(Text)          # user-editable notes
@@ -133,6 +142,48 @@ class User(Base):
     # ── Password reset (email-based) ────────────────────────────────────────
     password_reset_token = Column(String)
     password_reset_expires = Column(DateTime)
+
+
+class PriceHistory(Base):
+    """
+    Daily price snapshot per card — powers price-over-time charts and
+    last-sale tracking without hitting any external APIs at render time.
+
+    A background job writes one row per card per day. The frontend queries
+    this table to draw sparklines, show portfolio value history, and surface
+    the most recent confirmed sale for each card.
+    """
+    __tablename__ = "price_history"
+
+    id = Column(String, primary_key=True)
+    card_id = Column(String, nullable=False, index=True)
+    checked_at = Column(DateTime, default=datetime.utcnow)
+
+    # Aggregated raw (ungraded) prices across all sources
+    raw_avg = Column(Float)
+    raw_low = Column(Float)
+    raw_high = Column(Float)
+    raw_num_sales = Column(Integer)
+
+    # Aggregated graded prices across all sources
+    graded_avg = Column(Float)
+    graded_low = Column(Float)
+    graded_high = Column(Float)
+    graded_num_sales = Column(Integer)
+
+    # PSA 10 specific (most valuable graded data point)
+    psa10_avg = Column(Float)
+    psa10_low = Column(Float)
+    psa10_high = Column(Float)
+
+    # Most recent individual confirmed sale at snapshot time
+    last_sale_price = Column(Float)
+    last_sale_date = Column(DateTime)
+    last_sale_source = Column(String)
+
+    # Which sources contributed to this snapshot
+    sources_used = Column(String)   # e.g. "ebay_sold,psa_apr,heritage"
+    primary_source = Column(String)
 
 
 class Feedback(Base):
@@ -195,6 +246,14 @@ def _migrate(eng):
                 "owner_id": "VARCHAR",
                 "is_public": "BOOLEAN",
                 "set_hint": "VARCHAR",
+                # Multi-source pricing
+                "psa10_avg": "FLOAT",
+                "psa10_low": "FLOAT",
+                "psa10_high": "FLOAT",
+                "last_sale_price": "FLOAT",
+                "last_sale_date": "TIMESTAMP",
+                "last_sale_source": "VARCHAR",
+                "pricing_sources_used": "VARCHAR",
             }
             for col_name, col_type in card_cols.items():
                 if col_name not in existing:
