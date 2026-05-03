@@ -683,6 +683,23 @@
           <input type="text" id="bulk-set-custom" placeholder="Type set name..." style="width:100%;padding:10px 12px;border-radius:10px;border:1px solid #334155;background:#1e293b;color:#f1f5f9;font-size:14px;outline:none;margin-top:6px;display:none;box-sizing:border-box;">
         </div>
 
+        <!-- Graded toggle -->
+        <div style="margin-bottom:12px;">
+          <div style="display:flex;align-items:center;gap:10px;font-size:13px;color:#cbd5e1;cursor:pointer;margin-bottom:8px;"
+            onclick="const cb=document.getElementById('bulk-graded-toggle');cb.checked=!cb.checked;document.getElementById('bulk-grade-row').style.display=cb.checked?'block':'none';this.querySelector('.bgtoggle').style.background=cb.checked?'#8b5cf6':'#475569';this.querySelector('.bgthumb').style.transform=cb.checked?'translateX(20px)':'';">
+            <div class="bgtoggle" style="position:relative;width:44px;height:24px;background:#475569;border-radius:12px;transition:background .2s;flex-shrink:0;">
+              <div class="bgthumb" style="position:absolute;top:2px;left:2px;width:20px;height:20px;background:#fff;border-radius:50%;transition:transform .2s;"></div>
+            </div>
+            <input type="checkbox" id="bulk-graded-toggle" style="display:none;">
+            <span>All cards are Graded (PSA / BGS / SGC)</span>
+          </div>
+          <div id="bulk-grade-row" style="display:none;">
+            <label style="display:block;font-size:11px;color:#94a3b8;margin-bottom:4px;font-weight:600;">Grade (applies to all cards in batch)</label>
+            <input type="text" id="bulk-grade-input" placeholder="e.g. PSA 10, BGS 9.5, SGC 10"
+              style="width:100%;padding:10px 12px;border-radius:10px;border:1px solid #334155;background:#1e293b;color:#f1f5f9;font-size:14px;outline:none;box-sizing:border-box;">
+          </div>
+        </div>
+
         <!-- Privacy toggle -->
         <div style="display:flex;align-items:center;gap:10px;margin-bottom:16px;font-size:13px;color:#cbd5e1;cursor:pointer;" onclick="const t=this.querySelector('.btoggle');const on=t.classList.toggle('bton');document.getElementById('bulk-is-public').value=on?'true':'false';">
           <div class="btoggle">
@@ -1384,6 +1401,7 @@
           ${editField('Team', 'team', card.team, 'Team name')}
           ${editField('Sport', 'sport', card.sport, 'Baseball')}
           ${editField('Condition', 'condition', card.condition, 'Mint, Near Mint...')}
+          ${editToggle('Graded', 'is_graded', card.is_graded, 'grade', card.grade)}
           ${editToggle('Rookie Card', 'is_rookie_card', card.is_rookie_card)}
           ${editToggle('Parallel', 'is_parallel', card.is_parallel, 'parallel_name', card.parallel_name)}
           ${editToggle('Foil', 'is_foil', card.is_foil)}
@@ -1427,55 +1445,80 @@
             : ''
           }
         </div>
+        <!-- Raw pricing (always shown; labelled differently for graded cards) -->
         <div class="mb-3">
-          <p class="text-xs text-slate-500 mb-1 font-semibold">RAW / UNGRADED</p>
+          <p class="text-xs text-slate-500 mb-1 font-semibold">${card.is_graded ? `YOUR CARD — ${card.grade || 'GRADED'}` : 'RAW / UNGRADED'}</p>
           ${card.ebay_avg_sale
             ? `${row('Avg', '$' + card.ebay_avg_sale.toFixed(2))}
                ${row('Low', '$' + card.ebay_low.toFixed(2))}
                ${row('High', '$' + card.ebay_high.toFixed(2))}
-               ${row('# Found', card.ebay_num_sales)}`
-            : `<p class="text-slate-500 text-sm py-1">No raw pricing data yet.</p>`
+               ${row('# Sales Found', card.ebay_num_sales)}`
+            : `<p class="text-slate-500 text-sm py-1">${card.is_graded ? 'No graded pricing found yet.' : 'No raw pricing data yet.'}</p>`
           }
         </div>
+
+        <!-- Graded market pricing (shown for all cards when data exists) -->
         <div class="mb-3">
-          <p class="text-xs text-slate-500 mb-1 font-semibold">GRADED (PSA/BGS/SGC)</p>
+          <p class="text-xs text-slate-500 mb-1 font-semibold">${card.is_graded ? 'ALL GRADES (MARKET)' : 'GRADED MARKET VALUE'}</p>
           ${card.graded_avg
             ? `${row('Avg', '$' + card.graded_avg.toFixed(2))}
                ${row('Low', '$' + card.graded_low.toFixed(2))}
                ${row('High', '$' + card.graded_high.toFixed(2))}
-               ${row('# Found', card.graded_num_sales)}`
-            : `<p class="text-slate-500 text-sm py-1">No graded pricing data.</p>`
-          }
-        </div>
-        <div class="mb-5">
-          ${card.ebay_search_query
-            ? `${row('Search Used', card.ebay_search_query)}
-               ${card.ebay_search_url ? `<div class="py-1.5 border-b border-slate-700 text-sm"><a href="${card.ebay_search_url}" target="_blank" class="text-blue-400 hover:text-blue-300 underline text-sm">View on eBay &rarr;</a></div>` : ''}
-               ${card.ebay_last_checked ? row('Last Checked', formatEST(card.ebay_last_checked)) : ''}`
-            : ''
+               ${row('# Sales Found', card.graded_num_sales)}`
+            : `<p class="text-slate-500 text-sm py-1">${card.is_graded ? 'No market data yet.' : 'Get this card graded to see graded market prices.'}</p>`
           }
         </div>
 
+        <!-- PSA 10 specific pricing -->
+        ${card.psa10_avg ? `
+        <div class="mb-3">
+          <p class="text-xs text-slate-500 mb-1 font-semibold">PSA 10 (GEM MINT)</p>
+          ${row('Avg', '$' + card.psa10_avg.toFixed(2))}
+          ${card.psa10_low  ? row('Low',  '$' + card.psa10_low.toFixed(2))  : ''}
+          ${card.psa10_high ? row('High', '$' + card.psa10_high.toFixed(2)) : ''}
+        </div>` : ''}
+
+        <!-- Last confirmed sale -->
+        ${card.last_sale_price ? `
+        <div class="mb-3">
+          <p class="text-xs text-slate-500 mb-1 font-semibold">LAST CONFIRMED SALE</p>
+          ${row('Price', '$' + card.last_sale_price.toFixed(2))}
+          ${card.last_sale_date ? row('Date', new Date(card.last_sale_date).toLocaleDateString()) : ''}
+          ${card.last_sale_source ? row('Source', card.last_sale_source.replace('_', ' ').toUpperCase()) : ''}
+        </div>` : ''}
+
+        <!-- Sources & search -->
+        <div class="mb-5">
+          ${card.pricing_sources_used ? row('Sources', card.pricing_sources_used.replace(/,/g, ' · ')) : ''}
+          ${card.ebay_search_query ? row('Search Used', card.ebay_search_query) : ''}
+          ${card.ebay_search_url ? `<div class="py-1.5 border-b border-slate-700 text-sm"><a href="${card.ebay_search_url}" target="_blank" class="text-blue-400 hover:text-blue-300 underline text-sm">Verify on eBay &rarr;</a></div>` : ''}
+          ${card.ebay_last_checked ? row('Last Checked', formatEST(card.ebay_last_checked)) : ''}
+        </div>
+
+        <!-- Estimated price box -->
         ${card.estimated_price
           ? `<div id="price-box" class="${
               card.pricing_source === 'ai_estimate' ? 'bg-yellow-900/30 border border-yellow-700' :
-              card.pricing_source === 'ebay_api' ? 'bg-blue-900/30 border border-blue-700' :
+              card.pricing_source === 'ebay_api'    ? 'bg-blue-900/30 border border-blue-700' :
               'bg-green-900/40 border border-green-700'
             } rounded-xl p-4 mb-5 text-center">
                <p class="text-xs ${
                  card.pricing_source === 'ai_estimate' ? 'text-yellow-400' :
-                 card.pricing_source === 'ebay_api' ? 'text-blue-400' :
+                 card.pricing_source === 'ebay_api'    ? 'text-blue-400' :
                  'text-green-400'
                } uppercase tracking-widest">
-                 ${card.pricing_source === 'ai_estimate' ? 'AI Estimated Price (verify on eBay)' :
-                   card.pricing_source === 'ebay_api' ? 'Based on Active Listings' :
-                   'Based on Sold Listings'}
+                 ${card.is_graded
+                   ? `${card.grade || 'Graded'} — ${card.pricing_source === 'ai_estimate' ? 'AI Estimate' : 'Based on Sold Listings'}`
+                   : card.pricing_source === 'ai_estimate' ? 'AI Estimated Price (verify on eBay)'
+                   : card.pricing_source === 'ebay_api'    ? 'Based on Active Listings'
+                   : 'Based on Sold Listings'}
                </p>
                <p class="text-3xl font-bold ${
                  card.pricing_source === 'ai_estimate' ? 'text-yellow-300' :
-                 card.pricing_source === 'ebay_api' ? 'text-blue-300' :
+                 card.pricing_source === 'ebay_api'    ? 'text-blue-300' :
                  'text-green-300'
                } mt-1">$${card.estimated_price.toFixed(2)}</p>
+               ${card.is_graded ? '' : (card.graded_avg ? `<p class="text-xs text-slate-400 mt-1">Graded avg: $${card.graded_avg.toFixed(2)}</p>` : '')}
              </div>`
           : `<div id="price-box" class="bg-slate-800 border border-slate-700 rounded-xl p-4 mb-5 text-center">
                <p class="text-xs text-slate-500">No price yet</p>
@@ -1854,7 +1897,9 @@
         else setHint = '';
       }
       if (setHint === 'Unknown') setHint = '';
-      const isPublic = document.getElementById('bulk-is-public').value;
+      const isPublic  = document.getElementById('bulk-is-public').value;
+      const isGraded  = document.getElementById('bulk-graded-toggle')?.checked ? 'true' : 'false';
+      const bulkGrade = document.getElementById('bulk-grade-input')?.value.trim() || '';
 
       // Switch to progress view
       document.getElementById('bulk-setup').classList.add('hidden');
@@ -1873,9 +1918,11 @@
         txt.textContent = `Uploading ${i + 1} of ${bulkFiles.length}…  (${success} done, ${failed} failed)`;
 
         const form = new FormData();
-        form.append('image', file);
-        form.append('set_hint', setHint);
+        form.append('image',     file);
+        form.append('set_hint',  setHint);
         form.append('is_public', isPublic);
+        form.append('is_graded', isGraded);
+        form.append('grade',     bulkGrade);
 
         try {
           const res = await fetch('/api/cards/upload-combined', { method: 'POST', body: form });

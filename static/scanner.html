@@ -27,6 +27,9 @@
     .ptoggle { position:relative; }
     .ptoggle.pton { background:#3b82f6 !important; }
     .ptoggle.pton > div { transform:translateX(20px) !important; }
+    .gtoggle { position:relative; }
+    .gtoggle.gton { background:#8b5cf6 !important; }
+    .gtoggle.gton > div { transform:translateX(20px) !important; }
   </style>
 </head>
 <body class="bg-slate-900 text-white min-h-screen flex flex-col">
@@ -211,6 +214,29 @@
       }
     }
 
+    function gradedToggleHtml() {
+      const savedGraded = sessionStorage.getItem('cardmint_is_graded') === 'true';
+      const savedGrade  = sessionStorage.getItem('cardmint_grade') || '';
+      return `
+        <div style="width:100%;margin-top:4px;">
+          <label style="display:flex;align-items:center;gap:10px;font-size:13px;color:#cbd5e1;cursor:pointer;"
+            onclick="const cb=document.getElementById('graded-toggle');cb.checked=!cb.checked;sessionStorage.setItem('cardmint_is_graded',cb.checked);this.querySelector('.gtoggle').classList.toggle('gton',cb.checked);document.getElementById('grade-input-row').style.display=cb.checked?'block':'none';">
+            <div class="gtoggle ${savedGraded ? 'gton' : ''}" style="position:relative;width:44px;height:24px;background:${savedGraded ? '#8b5cf6' : '#475569'};border-radius:12px;transition:background .2s;flex-shrink:0;">
+              <div style="position:absolute;top:2px;left:2px;width:20px;height:20px;background:#fff;border-radius:50%;transition:transform .2s;${savedGraded ? 'transform:translateX(20px);' : ''}"></div>
+            </div>
+            <input type="checkbox" id="graded-toggle" ${savedGraded ? 'checked' : ''} style="display:none;">
+            <span>Card is Graded (PSA / BGS / SGC)</span>
+          </label>
+          <div id="grade-input-row" style="display:${savedGraded ? 'block' : 'none'};margin-top:8px;">
+            <label style="display:block;font-size:11px;color:#94a3b8;margin-bottom:4px;font-weight:600;">Grade</label>
+            <input type="text" id="grade-input" placeholder="e.g. PSA 10, BGS 9.5, SGC 10"
+              value="${savedGrade}"
+              oninput="sessionStorage.setItem('cardmint_grade',this.value)"
+              style="width:100%;padding:10px 12px;border-radius:10px;border:1px solid #334155;background:#1e293b;color:#f1f5f9;font-size:14px;outline:none;">
+          </div>
+        </div>`;
+    }
+
     function publicToggleHtml() {
       const savedPublic = sessionStorage.getItem('cardmint_is_public') === 'true';
       return `
@@ -366,6 +392,7 @@
               <p class="text-slate-400 text-sm mt-1">Take a photo or choose from your files</p>
             </div>
             ${setDropdownHtml()}
+            ${gradedToggleHtml()}
             <div class="w-full rounded-xl border-2 border-dashed border-slate-600 flex items-center justify-center" style="min-height:160px">
               <span class="text-slate-500 text-sm">Front image will appear here</span>
             </div>
@@ -411,6 +438,7 @@
                   class="block mx-auto mt-1 text-slate-400 hover:text-white text-xs underline">Replace</button>
               </div>
             </div>
+            ${gradedToggleHtml()}
             ${publicToggleHtml()}
             <button onclick="uploadCard()"
               class="w-full py-4 rounded-2xl bg-green-600 hover:bg-green-500 active:bg-green-700 font-semibold text-lg transition-colors mt-2">
@@ -494,9 +522,13 @@
         if (setHint === 'Other (type below)') {
           setHint = document.getElementById('set-hint-custom')?.value || sessionStorage.getItem('cardmint_set_custom') || '';
         }
-        const isPublic = document.getElementById('is-public-toggle')?.checked || sessionStorage.getItem('cardmint_is_public') === 'true';
-        form.append('set_hint', setHint);
-        form.append('is_public', isPublic ? 'true' : 'false');
+        const isPublic  = document.getElementById('is-public-toggle')?.checked || sessionStorage.getItem('cardmint_is_public') === 'true';
+        const isGraded  = document.getElementById('graded-toggle')?.checked ?? sessionStorage.getItem('cardmint_is_graded') === 'true';
+        const grade     = document.getElementById('grade-input')?.value.trim() || sessionStorage.getItem('cardmint_grade') || '';
+        form.append('set_hint',   setHint);
+        form.append('is_public',  isPublic  ? 'true' : 'false');
+        form.append('is_graded',  isGraded  ? 'true' : 'false');
+        form.append('grade',      grade);
         const url = useScanMode ? `${API_BASE}/api/cards/upload?scan_mode=true` : `${API_BASE}/api/cards/upload`;
         const res = await fetch(url, { method: 'POST', body: form });
         if (res.status === 401) {

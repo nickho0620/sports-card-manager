@@ -56,6 +56,8 @@ class Card(Base):
     condition = Column(String)          # Mint, Near Mint, Excellent …
     notable_features = Column(Text)
     description = Column(Text)
+    is_graded = Column(Boolean, default=False)
+    grade = Column(String)              # e.g. "PSA 10", "BGS 9.5", "SGC 10"
 
     # ── Pricing ─────────────────────────────────────────────────────────────
     estimated_price = Column(Float)
@@ -246,6 +248,9 @@ def _migrate(eng):
                 "owner_id": "VARCHAR",
                 "is_public": "BOOLEAN",
                 "set_hint": "VARCHAR",
+                # Graded flag
+                "is_graded": "BOOLEAN",
+                "grade": "VARCHAR",
                 # Multi-source pricing
                 "psa10_avg": "FLOAT",
                 "psa10_low": "FLOAT",

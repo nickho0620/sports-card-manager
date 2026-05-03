@@ -1487,6 +1487,8 @@ def card_to_dict(card: Card, db=None) -> dict:
         "condition": card.condition,
         "notable_features": card.notable_features,
         "description": card.description,
+        "is_graded": bool(card.is_graded),
+        "grade": card.grade,
         # Pricing
         "estimated_price": card.estimated_price,
         "ebay_avg_sale": card.ebay_avg_sale,
@@ -1502,6 +1504,15 @@ def card_to_dict(card: Card, db=None) -> dict:
         "graded_low": card.graded_low,
         "graded_high": card.graded_high,
         "graded_num_sales": card.graded_num_sales,
+        # PSA 10 specific
+        "psa10_avg": card.psa10_avg,
+        "psa10_low": card.psa10_low,
+        "psa10_high": card.psa10_high,
+        # Last confirmed sale
+        "last_sale_price": card.last_sale_price,
+        "last_sale_date": (card.last_sale_date.isoformat() + "Z") if card.last_sale_date else None,
+        "last_sale_source": card.last_sale_source,
+        "pricing_sources_used": card.pricing_sources_used,
         # Privacy & hints
         "is_public": bool(card.is_public),
         "set_hint": card.set_hint,
@@ -1673,7 +1684,11 @@ def _apply_pricing(db, card, pricing: dict) -> None:
     card.ebay_search_query = pricing.get("search_query")
     card.ebay_search_url = pricing.get("search_url")
     card.pricing_source = pricing.get("source")
-    card.estimated_price = pricing.get("avg")
+    # For graded cards use the graded average as the estimated price
+    if getattr(card, 'is_graded', False) and pricing.get("graded_avg"):
+        card.estimated_price = pricing.get("graded_avg")
+    else:
+        card.estimated_price = pricing.get("avg")
     card.graded_avg = pricing.get("graded_avg")
     card.graded_low = pricing.get("graded_low")
     card.graded_high = pricing.get("graded_high")
@@ -2062,6 +2077,8 @@ async def upload_card(
     scan_mode: bool = Query(default=False),
     set_hint: str = Form(default=""),
     is_public: str = Form(default="false"),
+    is_graded: str = Form(default="false"),
+    grade: str = Form(default=""),
 ):
     """Receive front and/or back images. At least one required. scan_mode applies edge detection + perspective correction."""
     user = require_auth(request)
@@ -2143,6 +2160,8 @@ async def upload_card(
         owner_id=user.id,
         set_hint=set_hint.strip() or None,
         is_public=(is_public.lower() in ("true", "1", "yes")),
+        is_graded=(is_graded.lower() in ("true", "1", "yes")),
+        grade=grade.strip() or None,
     )
     db.add(card)
     # Bump the sticky scan counter so deleted cards still count
@@ -2165,6 +2184,8 @@ async def upload_card_combined(
     image: UploadFile = File(...),
     set_hint: str = Form(default=""),
     is_public: str = Form(default="false"),
+    is_graded: str = Form(default="false"),
+    grade: str = Form(default=""),
 ):
     """Upload a single image containing both front and back of a card (flatbed scanner).
     Restricted to Unlimited tier and admins only."""
@@ -2232,6 +2253,8 @@ async def upload_card_combined(
         owner_id=user.id,
         set_hint=set_hint.strip() or None,
         is_public=(is_public.lower() in ("true", "1", "yes")),
+        is_graded=(is_graded.lower() in ("true", "1", "yes")),
+        grade=grade.strip() or None,
     )
     db.add(card)
     u = db.get(User, user.id)
@@ -2254,6 +2277,7 @@ def update_card(request: Request, card_id: str, body: dict):
         "is_autograph", "is_relic", "relic_type", "is_numbered", "print_run",
         "serial_number", "has_alternate_jersey", "jersey_description",
         "is_short_print", "notable_features", "is_public",
+        "is_graded", "grade",
     }
     db = SessionLocal()
     try:

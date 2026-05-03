@@ -105,6 +105,13 @@ def build_search_query(card) -> str:
             parts.append(f"/{card.print_run}")
     if card.card_number:
         parts.append(f"#{card.card_number}")
+    # For graded cards, append the grade so the search targets graded listings
+    if getattr(card, 'is_graded', False):
+        grade = getattr(card, 'grade', None)
+        if grade:
+            parts.append(grade)
+        else:
+            parts.append("graded")
     return " ".join(parts)
 
 
@@ -171,19 +178,20 @@ def _classify_listing(title: str, card) -> str:
     if re.search(r'\b(lot|bundle|set of|x\d+|\d+x)\b', title_lower):
         return "skip"
 
-    # If our card is NOT a parallel, skip listings that mention parallel types
+    is_graded_listing = any(kw in title_lower for kw in GRADED_KEYWORDS)
+
+    # For graded cards: only keep graded listings, skip raw ones
+    if getattr(card, 'is_graded', False):
+        return "graded" if is_graded_listing else "skip"
+
+    # For ungraded cards: skip listings that mention parallel types we don't have
     if not card.is_parallel:
         for kw in PARALLEL_KEYWORDS:
             set_name = (card.set_name or "").lower()
             if kw in title_lower and kw not in set_name:
                 return "skip"
 
-    # Check if graded
-    for kw in GRADED_KEYWORDS:
-        if kw in title_lower:
-            return "graded"
-
-    return "raw"
+    return "graded" if is_graded_listing else "raw"
 
 
 def _calc_stats(prices: list[float]) -> dict:
