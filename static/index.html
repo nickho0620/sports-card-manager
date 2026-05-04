@@ -1440,14 +1440,18 @@
         const estVal  = c.estimated_price != null ? `<strong style="color:#f1f5f9;">$${c.estimated_price.toFixed(2)}</strong>` : '<span style="color:#475569;">—</span>';
         const marketAvg = c.ebay_avg_sale != null ? `$${c.ebay_avg_sale.toFixed(2)}` : '<span style="color:#475569;">—</span>';
 
-        // % Change from price history
+        // % Change from price history (only vs a different calendar day)
         const pc = _priceChanges[c.id];
         let pctHtml = '<span style="color:#475569;">—</span>';
         if (pc && pc.pct_change !== null && pc.pct_change !== undefined) {
           const pct = pc.pct_change;
           const color = pct > 0 ? '#22c55e' : pct < 0 ? '#ef4444' : '#94a3b8';
           const arrow = pct > 0 ? '▲' : pct < 0 ? '▼' : '●';
-          pctHtml = `<span style="color:${color};font-weight:600;">${arrow} ${Math.abs(pct).toFixed(1)}%</span>`;
+          const sinceLabel = pc.prev_date
+            ? `vs ${new Date(pc.prev_date + 'T00:00:00').toLocaleDateString('en-US', {month:'short', day:'numeric'})}`
+            : '';
+          pctHtml = `<span style="color:${color};font-weight:600;" title="${sinceLabel}">${arrow} ${Math.abs(pct).toFixed(1)}%</span>
+            ${sinceLabel ? `<br><span style="font-size:10px;color:#475569;">${sinceLabel}</span>` : ''}`;
         } else if (pc && pc.prev_avg === null) {
           pctHtml = '<span style="font-size:11px;color:#475569;">First price</span>';
         }

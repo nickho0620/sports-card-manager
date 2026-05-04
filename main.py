@@ -2018,9 +2018,9 @@ def get_portfolio_value_history(
 @app.get("/api/portfolio/price-changes")
 def get_portfolio_price_changes(request: Request):
     """
-    For each of the user's cards return the two most recent raw_avg price
-    history entries so the frontend can show % change since last reprice.
-    Single query — efficient for large collections.
+    For each of the user's cards return % change between the most recent
+    price and the most recent price from a DIFFERENT calendar day.
+    Same-day reprices are ignored to avoid noise from minor scraping variance.
     """
     user = require_auth(request)
     db = SessionLocal()
@@ -2039,26 +2039,37 @@ def get_portfolio_price_changes(request: Request):
             .all()
         )
 
-        # Keep last 2 per card
-        by_card: dict[str, list] = {}
+        # Per card: keep the most recent entry as "current", then find the
+        # most recent entry from a DIFFERENT calendar day as "previous".
+        by_card: dict[str, dict] = {}
         for r in rows:
-            if r.card_id not in by_card:
-                by_card[r.card_id] = []
-            if len(by_card[r.card_id]) < 2:
-                by_card[r.card_id].append(r)
+            cid = r.card_id
+            if cid not in by_card:
+                by_card[cid] = {"current": r, "prev": None}
+                continue
+            entry = by_card[cid]
+            if entry["prev"] is None and r.checked_at and entry["current"].checked_at:
+                current_day = entry["current"].checked_at.date()
+                row_day     = r.checked_at.date()
+                if row_day < current_day:
+                    entry["prev"] = r
 
         result = {}
-        for card_id, entries in by_card.items():
-            current_avg = entries[0].raw_avg if entries else None
-            prev_avg    = entries[1].raw_avg if len(entries) > 1 else None
+        for card_id, entry in by_card.items():
+            current_avg = entry["current"].raw_avg if entry["current"] else None
+            prev_avg    = entry["prev"].raw_avg    if entry["prev"]    else None
+            prev_date   = entry["prev"].checked_at.date().isoformat() if entry["prev"] and entry["prev"].checked_at else None
+
             if prev_avg and prev_avg > 0 and current_avg is not None:
                 pct = round(((current_avg - prev_avg) / prev_avg) * 100, 1)
             else:
                 pct = None
+
             result[card_id] = {
                 "current_avg": current_avg,
-                "prev_avg": prev_avg,
-                "pct_change": pct,
+                "prev_avg":    prev_avg,
+                "prev_date":   prev_date,
+                "pct_change":  pct,
             }
         return result
     finally:
