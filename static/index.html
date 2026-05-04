@@ -1437,7 +1437,12 @@
         const graded  = c.is_graded
           ? `<span style="font-size:11px;background:#3b0764;color:#c084fc;padding:2px 8px;border-radius:999px;font-weight:600;">${c.grade || 'Graded'}</span>`
           : `<span style="font-size:11px;color:#475569;">—</span>`;
-        const estVal  = c.estimated_price != null ? `<strong style="color:#f1f5f9;">$${c.estimated_price.toFixed(2)}</strong>` : '<span style="color:#475569;">—</span>';
+        const _tier   = pricingTier(c.pricing_source);
+        const _valCol = _tier === 'sold' ? '#86efac' : _tier === 'active' ? '#93c5fd' : '#fde68a';
+        const _srcLbl = _tier === 'sold' ? 'Sold' : _tier === 'active' ? 'Active' : 'AI Est.';
+        const estVal  = c.estimated_price != null
+          ? `<strong style="color:${_valCol};">$${c.estimated_price.toFixed(2)}</strong><br><span style="font-size:10px;color:#475569;">${_srcLbl}</span>`
+          : '<span style="color:#475569;">—</span>';
         const marketAvg = c.ebay_avg_sale != null ? `$${c.ebay_avg_sale.toFixed(2)}` : '<span style="color:#475569;">—</span>';
 
         // % Change from price history (only vs a different calendar day)
@@ -1889,6 +1894,53 @@
       return b.join(' ');
     }
 
+    // Map pricing_source to a human label + style tier
+    // tier: 'sold' | 'active' | 'ai'
+    function pricingTier(source) {
+      if (!source) return 'ai';
+      const s = source.toLowerCase();
+      // Any real sold-data source
+      if (s === 'ebay_sold' || s === 'multi_source' || s === 'psa_apr' ||
+          s === 'heritage'  || s === 'pwcc'         || s === 'ebay_sold,psa_apr' ||
+          s.includes('ebay_sold') || s.includes('heritage') ||
+          s.includes('psa_apr')  || s.includes('pwcc')) return 'sold';
+      if (s === 'ebay_api') return 'active';
+      return 'ai';
+    }
+    function pricingLabel(source, isGraded, grade) {
+      const tier = pricingTier(source);
+      if (tier === 'sold')   return isGraded ? `${grade || 'Graded'} — Sold Price`   : 'Sold Price';
+      if (tier === 'active') return isGraded ? `${grade || 'Graded'} — Active Listing Price` : 'Active Listing Price';
+      return isGraded ? `${grade || 'Graded'} — AI Estimate` : 'AI Estimate (verify on eBay)';
+    }
+    function pricingBadgeHtml(source) {
+      const tier = pricingTier(source);
+      const cfg = {
+        sold:   { cls: 'bg-green-900/50 text-green-400',  label: 'Sold Price' },
+        active: { cls: 'bg-blue-900/50 text-blue-400',    label: 'Active Listing' },
+        ai:     { cls: 'bg-yellow-900/50 text-yellow-400',label: 'AI Estimate' },
+      }[tier];
+      return `<span class="text-xs px-2 py-0.5 rounded-full ${cfg.cls}">${cfg.label}</span>`;
+    }
+    function pricingBoxClass(source) {
+      const tier = pricingTier(source);
+      if (tier === 'sold')   return 'bg-green-900/40 border border-green-700';
+      if (tier === 'active') return 'bg-blue-900/30 border border-blue-700';
+      return 'bg-yellow-900/30 border border-yellow-700';
+    }
+    function pricingTextColor(source) {
+      const tier = pricingTier(source);
+      if (tier === 'sold')   return { label: 'text-green-400',  value: 'text-green-300' };
+      if (tier === 'active') return { label: 'text-blue-400',   value: 'text-blue-300' };
+      return                        { label: 'text-yellow-400', value: 'text-yellow-300' };
+    }
+    function cardGridPriceColor(source) {
+      const tier = pricingTier(source);
+      if (tier === 'sold')   return 'text-green-400';
+      if (tier === 'active') return 'text-blue-400';
+      return 'text-yellow-400';
+    }
+
     function statusPill(status) {
       const label = { pending:'Pending', analyzing:'Analyzing…', pricing:'Pricing…', complete:'Complete', error:'Error' }[status] || status;
       const cls = { pending:'s-pending', analyzing:'s-analyzing pulsing', pricing:'s-pricing pulsing', complete:'s-complete', error:'s-error' }[status] || 's-pending';
@@ -1925,7 +1977,7 @@
             <div class="flex flex-wrap gap-1 mt-2">${badges(card)}</div>
             <div class="mt-2 flex items-center justify-between">
               ${card.estimated_price
-                ? `<span class="text-green-400 font-bold text-sm">$${card.estimated_price.toFixed(2)}</span>`
+                ? `<span class="${cardGridPriceColor(card.pricing_source)} font-bold text-sm">$${card.estimated_price.toFixed(2)}</span>`
                 : `<span class="text-slate-600 text-xs">No price yet</span>`
               }
               ${card.team ? `<span class="text-slate-500 text-xs truncate ml-2">${card.team}</span>` : ''}
@@ -2088,18 +2140,7 @@
         <!-- Pricing -->
         <div class="flex items-center justify-between mb-2">
           <h3 class="font-semibold text-slate-300 text-xs uppercase tracking-widest">Pricing</h3>
-          ${card.pricing_source
-            ? `<span class="text-xs px-2 py-0.5 rounded-full ${
-                card.pricing_source === 'ebay_sold' ? 'bg-green-900/50 text-green-400' :
-                card.pricing_source === 'ebay_api' ? 'bg-blue-900/50 text-blue-400' :
-                'bg-yellow-900/50 text-yellow-400'
-              }">${
-                card.pricing_source === 'ebay_sold' ? 'eBay Sold Data' :
-                card.pricing_source === 'ebay_api' ? 'eBay Active Listings' :
-                'AI Estimate'
-              }</span>`
-            : ''
-          }
+          ${card.pricing_source ? pricingBadgeHtml(card.pricing_source) : ''}
         </div>
         <!-- Raw pricing (always shown; labelled differently for graded cards) -->
         <div class="mb-3">
@@ -2153,27 +2194,11 @@
 
         <!-- Estimated price box -->
         ${card.estimated_price
-          ? `<div id="price-box" class="${
-              card.pricing_source === 'ai_estimate' ? 'bg-yellow-900/30 border border-yellow-700' :
-              card.pricing_source === 'ebay_api'    ? 'bg-blue-900/30 border border-blue-700' :
-              'bg-green-900/40 border border-green-700'
-            } rounded-xl p-4 mb-5 text-center">
-               <p class="text-xs ${
-                 card.pricing_source === 'ai_estimate' ? 'text-yellow-400' :
-                 card.pricing_source === 'ebay_api'    ? 'text-blue-400' :
-                 'text-green-400'
-               } uppercase tracking-widest">
-                 ${card.is_graded
-                   ? `${card.grade || 'Graded'} — ${card.pricing_source === 'ai_estimate' ? 'AI Estimate' : 'Based on Sold Listings'}`
-                   : card.pricing_source === 'ai_estimate' ? 'AI Estimated Price (verify on eBay)'
-                   : card.pricing_source === 'ebay_api'    ? 'Based on Active Listings'
-                   : 'Based on Sold Listings'}
+          ? `<div id="price-box" class="${pricingBoxClass(card.pricing_source)} rounded-xl p-4 mb-5 text-center">
+               <p class="text-xs ${pricingTextColor(card.pricing_source).label} uppercase tracking-widest">
+                 ${pricingLabel(card.pricing_source, card.is_graded, card.grade)}
                </p>
-               <p class="text-3xl font-bold ${
-                 card.pricing_source === 'ai_estimate' ? 'text-yellow-300' :
-                 card.pricing_source === 'ebay_api'    ? 'text-blue-300' :
-                 'text-green-300'
-               } mt-1">$${card.estimated_price.toFixed(2)}</p>
+               <p class="text-3xl font-bold ${pricingTextColor(card.pricing_source).value} mt-1">$${card.estimated_price.toFixed(2)}</p>
                ${card.is_graded ? '' : (card.graded_avg ? `<p class="text-xs text-slate-400 mt-1">Graded avg: $${card.graded_avg.toFixed(2)}</p>` : '')}
              </div>`
           : `<div id="price-box" class="bg-slate-800 border border-slate-700 rounded-xl p-4 mb-5 text-center">
