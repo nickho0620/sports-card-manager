@@ -2339,6 +2339,36 @@ def reprice_card(request: Request, card_id: str, background_tasks: BackgroundTas
     return {"status": "repricing"}
 
 
+@app.post("/api/cards/reprice-all")
+def reprice_all_cards(request: Request, background_tasks: BackgroundTasks):
+    """Reprice all of the user's cards. Unlimited/Admin only.
+    Queues each card as a separate background task — pricing only, no re-identification.
+    """
+    user = require_auth(request)
+    db = SessionLocal()
+    try:
+        u = db.get(User, user.id)
+        tier = (u.subscription_tier or "free").lower()
+        if not u.is_admin and tier != "unlimited":
+            raise HTTPException(
+                status_code=403,
+                detail="Reprice All is only available on the Unlimited plan.",
+            )
+        card_ids = [
+            c.id for c in db.query(Card.id)
+            .filter(Card.owner_id == user.id, Card.status == "complete")
+            .all()
+        ]
+    finally:
+        db.close()
+
+    for card_id in card_ids:
+        background_tasks.add_task(refresh_pricing, card_id)
+
+    return {"status": "queued", "count": len(card_ids)}
+
+
+
 @app.delete("/api/cards/{card_id}")
 def delete_card(request: Request, card_id: str):
     """Delete a card and its images."""

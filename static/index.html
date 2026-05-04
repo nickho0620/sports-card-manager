@@ -381,6 +381,16 @@
 
   <!-- Card Grid -->
   <main id="view-cards" class="px-6 py-6">
+    <!-- Reprice All — Unlimited only, shown on My Collection -->
+    <div id="reprice-all-bar" class="hidden" style="margin-bottom:20px;padding:14px 18px;background:#1e293b;border:1px solid #334155;border-radius:14px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;">
+      <div>
+        <p style="margin:0;font-size:14px;font-weight:600;color:#f1f5f9;">🔄 Reprice All Cards</p>
+        <p style="margin:2px 0 0;font-size:12px;color:#64748b;">Refresh market pricing for every card in your collection. Each reprice is saved to history for your charts.</p>
+      </div>
+      <button id="reprice-all-btn" onclick="repriceAllCards()" style="background:#7c3aed;border:none;color:#fff;padding:9px 20px;border-radius:10px;font-size:13px;font-weight:600;cursor:pointer;white-space:nowrap;transition:background .15s;" onmouseover="this.style.background='#6d28d9'" onmouseout="this.style.background='#7c3aed'">
+        Reprice All
+      </button>
+    </div>
     <div id="cards-grid" class="card-grid"></div>
     <div id="empty-state" class="hidden text-center py-24">
       <div class="text-5xl mb-4">📭</div>
@@ -1172,6 +1182,10 @@
         cardsView.classList.remove('hidden');
         searchBar.classList.remove('hidden');
         mineFilterActive = (view === 'mine');
+        // Show Reprice All bar only on My Collection for Unlimited users
+        const repriceAllBar = document.getElementById('reprice-all-bar');
+        const isUnlimited = currentUser && (currentUser.subscription_tier || '').toLowerCase() === 'unlimited';
+        if (repriceAllBar) repriceAllBar.classList.toggle('hidden', !(mineFilterActive && (isUnlimited || isAdmin)));
         if (showPack) {
           packAnimShown = true;
           showPackAnimation();
@@ -1196,6 +1210,34 @@
     }
 
     // (legacy toggleMineFilter removed — now handled via switchView)
+
+    // ── Reprice All (Unlimited) ──────────────────────────────────────────────
+    async function repriceAllCards() {
+      const btn = document.getElementById('reprice-all-btn');
+      btn.disabled = true;
+      btn.textContent = 'Queueing…';
+      try {
+        const res = await fetch('/api/cards/reprice-all', { method: 'POST' });
+        const data = await res.json();
+        if (!res.ok) {
+          btn.textContent = 'Reprice All';
+          btn.disabled = false;
+          alert(data.detail || 'Failed to start repricing.');
+          return;
+        }
+        btn.textContent = `✓ Queued ${data.count} card${data.count !== 1 ? 's' : ''}`;
+        btn.style.background = '#15803d';
+        setTimeout(() => {
+          btn.textContent = 'Reprice All';
+          btn.style.background = '#7c3aed';
+          btn.disabled = false;
+        }, 4000);
+      } catch {
+        btn.textContent = 'Reprice All';
+        btn.disabled = false;
+        alert('Something went wrong. Please try again.');
+      }
+    }
 
     // ── My Analytics ────────────────────────────────────────────────────────
 
