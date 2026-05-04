@@ -26,6 +26,7 @@
     .s-analyzing  { background:#1e3a8a; color:#93c5fd; }
     .s-pricing    { background:#164e63; color:#67e8f9; }
     .s-complete   { background:#14532d; color:#86efac; }
+    .s-repricing  { background:#78350f; color:#fde68a; }
     .s-error      { background:#7f1d1d; color:#fca5a5; }
     .modal-bg     { position:fixed;inset:0;background:rgba(0,0,0,.75);z-index:50;display:flex;align-items:center;justify-content:center;padding:16px; }
     .modal-box    { background:#1e293b;border-radius:16px;width:100%;max-width:720px;max-height:92vh;overflow-y:auto; }
@@ -1251,10 +1252,13 @@
     }
 
     // ── Reprice All (Unlimited) ──────────────────────────────────────────────
+    let _repriceAllPollTimer = null;
+
     async function repriceAllCards() {
       const btn = document.getElementById('reprice-all-btn');
       btn.disabled = true;
       btn.textContent = 'Queueing…';
+
       try {
         const res = await fetch('/api/cards/reprice-all', { method: 'POST' });
         const data = await res.json();
@@ -1264,13 +1268,71 @@
           alert(data.detail || 'Failed to start repricing.');
           return;
         }
-        btn.textContent = `✓ Queued ${data.count} card${data.count !== 1 ? 's' : ''}`;
-        btn.style.background = '#15803d';
-        setTimeout(() => {
-          btn.textContent = 'Reprice All';
-          btn.style.background = '#7c3aed';
-          btn.disabled = false;
-        }, 4000);
+
+        const totalCount = data.count;
+        btn.textContent = `Repricing 0 / ${totalCount}…`;
+
+        // Snapshot current last-priced timestamps & flip all complete badges to Repricing
+        const cardEls = document.querySelectorAll('#cards-grid [data-card-id]');
+        const startTimes = {};
+        cardEls.forEach(el => {
+          startTimes[el.dataset.cardId] = el.dataset.lastPriced || '';
+          const pill = el.querySelector('.card-status-pill');
+          if (pill && el.dataset.lastPriced !== undefined) {
+            pill.innerHTML = `<span class="status-pill s-repricing pulsing">Repricing…</span>`;
+          }
+        });
+
+        let doneCount = 0;
+        const repricingIds = new Set(Object.keys(startTimes));
+
+        // Clear any existing poll
+        if (_repriceAllPollTimer) clearInterval(_repriceAllPollTimer);
+
+        _repriceAllPollTimer = setInterval(async () => {
+          if (!repricingIds.size) {
+            clearInterval(_repriceAllPollTimer);
+            return;
+          }
+          try {
+            const pollRes = await fetch('/api/cards?owner=mine&limit=1000');
+            if (!pollRes.ok) return;
+            const pollData = await pollRes.json();
+            (pollData.cards || []).forEach(card => {
+              if (!repricingIds.has(card.id)) return;
+              const newTime = card.ebay_last_checked || '';
+              if (newTime && newTime !== startTimes[card.id]) {
+                // This card has been repriced — flip badge back
+                repricingIds.delete(card.id);
+                doneCount++;
+                const el = document.querySelector(`#cards-grid [data-card-id="${card.id}"]`);
+                if (el) {
+                  el.dataset.lastPriced = newTime;
+                  const pill = el.querySelector('.card-status-pill');
+                  if (pill) pill.innerHTML = statusPill('complete');
+                  // Update price if changed
+                  const priceEl = el.querySelector('.text-green-400');
+                  if (priceEl && card.estimated_price) {
+                    priceEl.textContent = `$${card.estimated_price.toFixed(2)}`;
+                  }
+                }
+                btn.textContent = `Repricing ${doneCount} / ${totalCount}…`;
+              }
+            });
+
+            if (!repricingIds.size) {
+              clearInterval(_repriceAllPollTimer);
+              btn.textContent = `✓ All ${totalCount} cards repriced`;
+              btn.style.background = '#15803d';
+              setTimeout(() => {
+                btn.textContent = 'Reprice All';
+                btn.style.background = '#7c3aed';
+                btn.disabled = false;
+              }, 4000);
+            }
+          } catch(_) {}
+        }, 5000);
+
       } catch {
         btn.textContent = 'Reprice All';
         btn.disabled = false;
@@ -1844,11 +1906,12 @@
 
       grid.innerHTML = cards.map(card => `
         <div class="bg-slate-800 rounded-xl overflow-hidden cursor-pointer hover:ring-2 hover:ring-blue-500 transition-all"
+             data-card-id="${card.id}" data-last-priced="${card.ebay_last_checked || ''}"
              onclick="openModal('${card.id}')">
           <div class="relative">
             <img src="${card.front_image_url}" class="card-thumb" alt="${card.player_name||'Card'}"
                  onerror="this.style.display='none'">
-            <div class="absolute top-2 right-2">${statusPill(card.status)}</div>
+            <div class="absolute top-2 right-2 card-status-pill">${statusPill(card.status)}</div>
           </div>
           <div class="p-3">
             <p class="font-semibold text-sm truncate">${card.player_name || '—'}</p>
