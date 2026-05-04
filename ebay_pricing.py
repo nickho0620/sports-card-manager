@@ -194,21 +194,20 @@ def _classify_listing(title: str, card) -> str:
     return "graded" if is_graded_listing else "raw"
 
 
-MIN_PRICES_REQUIRED = 3   # require at least this many sales before trusting a result
-
 def _calc_stats(prices: list[float]) -> dict:
     """Calculate price statistics from a list of prices.
 
-    Uses IQR-based outlier removal (Tukey fences) so that a single expensive
-    graded card or a dirt-cheap lot listing can't swing the average.
-    Requires at least MIN_PRICES_REQUIRED data points to return a result.
+    Uses IQR-based outlier removal (Tukey fences) on larger samples to remove
+    graded cards, lots, and damaged listings that slip through classification.
+    Accepts as few as 1 price — the multi-source aggregator cross-validates
+    across sources so even a single listing can contribute to a reliable pool.
     """
-    if len(prices) < MIN_PRICES_REQUIRED:
+    if not prices:
         return {}
 
     prices = sorted(prices)
 
-    # IQR outlier removal — works on any sample size
+    # IQR outlier removal on larger samples
     if len(prices) >= 4:
         q1 = statistics.median(prices[:len(prices) // 2])
         q3 = statistics.median(prices[(len(prices) + 1) // 2:])
@@ -218,8 +217,7 @@ def _calc_stats(prices: list[float]) -> dict:
             high_fence = q3 + 1.5 * iqr
             prices = [p for p in prices if low_fence <= p <= high_fence]
 
-    # After filtering still need minimum count
-    if len(prices) < MIN_PRICES_REQUIRED:
+    if not prices:
         return {}
 
     return {

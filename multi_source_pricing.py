@@ -33,67 +33,67 @@ from psa_scraper import scrape_psa_apr
 from pwcc_scraper import scrape_pwcc
 
 
-def _pool_stats(price_lists: list[list[float]]) -> dict:
-    """Merge multiple price lists and compute aggregate stats."""
-    all_prices = [p for lst in price_lists for p in lst]
-    if not all_prices:
+def _pool_source_avgs(avgs: list[float], counts: list[int]) -> dict:
+    """
+    Aggregate multiple source averages into one reliable price estimate.
+
+    Strategy:
+    - Use each source's median (most robust internal stat) weighted by its
+      sample count so a source with 20 sales outweighs one with 1 sale.
+    - Apply IQR outlier removal across source medians so a single rogue
+      source (e.g. Heritage returning a premium auction result for a common
+      card) doesn't drag the final number up.
+    - Final price = weighted mean of the surviving source medians.
+    - Falls back gracefully to a single source if only one exists.
+    """
+    if not avgs:
         return {}
-    # Remove extreme outliers (> 4× median)
-    if len(all_prices) >= 5:
-        med = statistics.median(all_prices)
-        all_prices = [p for p in all_prices if p <= med * 4]
-    if not all_prices:
+
+    paired = sorted(zip(avgs, counts), key=lambda x: x[0])
+    avgs_sorted   = [p[0] for p in paired]
+    counts_sorted = [p[1] for p in paired]
+
+    # IQR across source medians — removes outlier sources, not individual prices
+    if len(avgs_sorted) >= 3:
+        q1 = statistics.median(avgs_sorted[:len(avgs_sorted) // 2])
+        q3 = statistics.median(avgs_sorted[(len(avgs_sorted) + 1) // 2:])
+        iqr = q3 - q1
+        if iqr > 0:
+            lo = q1 - 1.5 * iqr
+            hi = q3 + 1.5 * iqr
+            filtered = [(a, c) for a, c in zip(avgs_sorted, counts_sorted) if lo <= a <= hi]
+            if filtered:
+                avgs_sorted   = [f[0] for f in filtered]
+                counts_sorted = [f[1] for f in filtered]
+
+    if not avgs_sorted:
         return {}
+
+    # Weighted mean across surviving sources
+    total_weight = sum(counts_sorted)
+    weighted_avg = sum(a * c for a, c in zip(avgs_sorted, counts_sorted)) / total_weight
+    total_count  = total_weight
+
     return {
-        "avg": round(statistics.mean(all_prices), 2),
-        "low": round(min(all_prices), 2),
-        "high": round(max(all_prices), 2),
-        "count": len(all_prices),
+        "avg":   round(weighted_avg, 2),
+        "low":   round(min(avgs_sorted), 2),
+        "high":  round(max(avgs_sorted), 2),
+        "count": total_count,
     }
 
 
-def _prices_from_result(result: dict, key: str) -> list[float]:
-    """
-    Reconstruct an approximate list of prices from stats stored in a result dict.
-    We only have avg/low/high/count — generate synthetic spread for pooling.
-    Uses count copies of avg, plus one low and one high if count > 2.
-    This is imperfect but gives a reasonable weighted pool.
-    """
-    avg = result.get(f"{key}avg") or result.get("avg") if key == "" else result.get(f"{key}avg")
-    low = result.get(f"{key}low") or result.get("low") if key == "" else result.get(f"{key}low")
-    high = result.get(f"{key}high") or result.get("high") if key == "" else result.get(f"{key}high")
-    count = result.get(f"{key}num_sales") or result.get("num_sales") if key == "" else result.get(f"{key}num_sales")
-
-    if not avg:
-        return []
-    prices = [avg] * max(1, int(count or 1))
-    if low and low != avg:
-        prices.append(low)
-    if high and high != avg:
-        prices.append(high)
-    return prices
+def _extract_raw(result: dict) -> tuple[float, int]:
+    """Return (median_or_avg, count) for the raw price from a source result."""
+    avg   = result.get("median") or result.get("avg")
+    count = result.get("num_sales") or result.get("count") or 1
+    return (avg, int(count)) if avg else (None, 0)
 
 
-def _raw_prices_from(result: dict) -> list[float]:
-    avg = result.get("avg")
-    if not avg:
-        return []
-    return _prices_from_result(result, "")
-
-
-def _graded_prices_from(result: dict) -> list[float]:
-    avg = result.get("graded_avg")
-    if not avg:
-        return []
-    low = result.get("graded_low")
-    high = result.get("graded_high")
-    count = result.get("graded_num_sales", 1)
-    prices = [avg] * max(1, int(count))
-    if low and low != avg:
-        prices.append(low)
-    if high and high != avg:
-        prices.append(high)
-    return prices
+def _extract_graded(result: dict) -> tuple[float, int]:
+    """Return (median_or_avg, count) for the graded price from a source result."""
+    avg   = result.get("graded_avg")
+    count = result.get("graded_num_sales") or 1
+    return (avg, int(count)) if avg else (None, 0)
 
 
 def get_multi_source_pricing(card) -> dict | None:
@@ -162,24 +162,26 @@ def get_multi_source_pricing(card) -> dict | None:
 
     # ── Aggregate ────────────────────────────────────────────────────────────
 
-    # Pool all raw prices
-    raw_price_lists = []
+    # Collect raw (ungraded) avgs + counts from each source
+    raw_avgs, raw_counts = [], []
     for src_result in [ebay_scrape, ebay_api, heritage_result, pwcc_result]:
         if src_result:
-            prices = _raw_prices_from(src_result)
-            if prices:
-                raw_price_lists.append(prices)
+            avg, count = _extract_raw(src_result)
+            if avg:
+                raw_avgs.append(avg)
+                raw_counts.append(count)
 
-    # Pool all graded prices
-    graded_price_lists = []
+    # Collect graded avgs + counts from each source
+    graded_avgs, graded_counts = [], []
     for src_result in [ebay_scrape, ebay_api, psa_result, heritage_result, pwcc_result]:
         if src_result:
-            prices = _graded_prices_from(src_result)
-            if prices:
-                graded_price_lists.append(prices)
+            avg, count = _extract_graded(src_result)
+            if avg:
+                graded_avgs.append(avg)
+                graded_counts.append(count)
 
-    raw_stats = _pool_stats(raw_price_lists)
-    graded_stats = _pool_stats(graded_price_lists)
+    raw_stats     = _pool_source_avgs(raw_avgs, raw_counts)
+    graded_stats  = _pool_source_avgs(graded_avgs, graded_counts)
 
     # ── No data at all — fall back to AI estimate ────────────────────────────
     if not raw_stats and not graded_stats:
