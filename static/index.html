@@ -262,8 +262,8 @@
     <!-- Top-level navigation tabs -->
     <nav style="padding:0 24px; background:#0f172a; border-top:1px solid #1e293b;">
       <div style="display:flex; align-items:center; justify-content:center; gap:4px; overflow-x:auto;">
-        <button class="nav-tab hidden" id="nav-analytics" data-view="analytics" onclick="switchView('analytics')">📊 My Analytics</button>
         <button class="nav-tab hidden" id="nav-mine" data-view="mine" onclick="switchView('mine')">⭐ My Collection</button>
+        <button class="nav-tab hidden" id="nav-analytics" data-view="analytics" onclick="switchView('analytics')">📊 My Analytics</button>
         <button class="nav-tab active" data-view="all" onclick="switchView('all')">🌐 Community Collection</button>
         <button class="nav-tab" data-view="info" onclick="switchView('info')">ℹ️ Info</button>
         <button class="nav-tab" data-view="howto" onclick="switchView('howto')">📖 How To Use</button>
@@ -1245,7 +1245,7 @@
     async function _populateCardSelector() {
       const sel = document.getElementById('card-chart-select');
       try {
-        const res = await fetch('/api/cards?owner=mine&limit=500');
+        const res = await fetch('/api/cards?owner=mine&limit=1000');
         if (!res.ok) return;
         const data = await res.json();
         const cards = data.cards || [];

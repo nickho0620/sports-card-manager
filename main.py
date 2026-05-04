@@ -1780,7 +1780,7 @@ def list_cards(
     search: str = Query(default=""),
     status: str = Query(default=""),
     owner: str = Query(default=""),
-    limit: int = Query(default=60, le=200),
+    limit: int = Query(default=60, le=1000),
     offset: int = Query(default=0),
 ):
     """List cards. The 'Card Collection' (all) view only returns public cards
