@@ -4,6 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>CardMint</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
   <link rel="icon" type="image/x-icon" href="/static/favicon.ico">
   <link rel="icon" type="image/png" sizes="192x192" href="/static/favicon.png">
   <link rel="icon" type="image/png" sizes="32x32" href="/static/favicon-32.png">
@@ -79,6 +80,9 @@
     .pack-label-sub { font-size:11px; color:rgba(255,255,255,.6); margin-top:4px; z-index:1; }
     .pack-cards-reveal { animation:packCardsReveal 1.2s ease-out forwards; }
     .filter-btn { padding:6px 16px; border-radius:999px; font-size:13px; cursor:pointer; border:1px solid #334155; transition:all .15s; }
+    .atf-btn { padding:5px 13px; border-radius:8px; font-size:12px; font-weight:600; cursor:pointer; border:1px solid #334155; background:transparent; color:#94a3b8; transition:all .15s; }
+    .atf-btn:hover { border-color:#64748b; color:#cbd5e1; }
+    .atf-btn.active { background:#3b82f6; border-color:#3b82f6; color:#fff; }
     .filter-btn.active { background:#3b82f6; border-color:#3b82f6; color:#fff; }
     .filter-btn:not(.active) { background:transparent; color:#94a3b8; }
     .filter-btn:not(.active):hover { border-color:#64748b; color:#cbd5e1; }
@@ -258,6 +262,7 @@
     <!-- Top-level navigation tabs -->
     <nav style="padding:0 24px; background:#0f172a; border-top:1px solid #1e293b;">
       <div style="display:flex; align-items:center; justify-content:center; gap:4px; overflow-x:auto;">
+        <button class="nav-tab hidden" id="nav-analytics" data-view="analytics" onclick="switchView('analytics')">📊 My Analytics</button>
         <button class="nav-tab hidden" id="nav-mine" data-view="mine" onclick="switchView('mine')">⭐ My Collection</button>
         <button class="nav-tab active" data-view="all" onclick="switchView('all')">🌐 Community Collection</button>
         <button class="nav-tab" data-view="info" onclick="switchView('info')">ℹ️ Info</button>
@@ -515,7 +520,7 @@
           <span class="step-num">3</span>
           <div class="step-icon">💰</div>
           <h3>Get real pricing</h3>
-          <p>We pull live eBay sold listings to show raw and graded comps so you know exactly what your card is worth.</p>
+          <p>We pull live listings from multiple card marketplaces to show raw and graded comps so you know exactly what your card is worth.</p>
         </div>
         <div class="step-card">
           <span class="step-num">4</span>
@@ -657,6 +662,113 @@
 
       <p class="pricing-footnote">All plans billed monthly. Cancel anytime from your account menu.</p>
     </div>
+  </main>
+
+  <!-- Analytics View -->
+  <main id="view-analytics" class="hidden" style="padding:24px;max-width:1200px;margin:0 auto;">
+
+    <!-- Portfolio Value Chart -->
+    <div style="margin-bottom:32px;">
+      <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;margin-bottom:16px;">
+        <div>
+          <h2 style="font-size:20px;font-weight:700;margin:0 0 4px;">Portfolio Value Over Time</h2>
+          <p id="analytics-portfolio-stat" style="font-size:13px;color:#94a3b8;margin:0;"></p>
+        </div>
+        <div style="display:flex;gap:6px;flex-wrap:wrap;" id="portfolio-timeframe-btns">
+          <button class="atf-btn active" data-days="7" onclick="setPortfolioTimeframe(this)">7D</button>
+          <button class="atf-btn" data-days="30" onclick="setPortfolioTimeframe(this)">30D</button>
+          <button class="atf-btn" data-days="90" onclick="setPortfolioTimeframe(this)">90D</button>
+          <button class="atf-btn" data-days="365" onclick="setPortfolioTimeframe(this)">1Y</button>
+          <button class="atf-btn" data-days="0" onclick="setPortfolioTimeframe(this)">ALL</button>
+        </div>
+      </div>
+      <div id="portfolio-chart-wrap" style="background:#1e293b;border-radius:16px;padding:20px;position:relative;min-height:260px;">
+        <canvas id="portfolio-chart" height="220"></canvas>
+        <div id="portfolio-chart-empty" class="hidden" style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;color:#475569;">
+          <div style="font-size:40px;margin-bottom:8px;">📈</div>
+          <p style="font-size:14px;font-weight:600;margin:0 0 4px;">No price history yet</p>
+          <p style="font-size:12px;margin:0;">Price history builds up as your cards get repriced over time.</p>
+        </div>
+        <div id="portfolio-chart-loading" style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:#64748b;font-size:13px;">
+          Loading…
+        </div>
+      </div>
+    </div>
+
+    <!-- Individual Card Charts -->
+    <div>
+      <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;margin-bottom:16px;">
+        <h2 style="font-size:20px;font-weight:700;margin:0;">Individual Card Value</h2>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
+          <select id="card-chart-select" onchange="onCardChartSelect()" style="background:#1e293b;border:1px solid #334155;color:#f1f5f9;padding:8px 12px;border-radius:10px;font-size:13px;outline:none;min-width:220px;max-width:320px;">
+            <option value="">Select a card…</option>
+          </select>
+          <div style="display:flex;gap:6px;flex-wrap:wrap;" id="card-timeframe-btns">
+            <button class="atf-btn active" data-days="7" onclick="setCardTimeframe(this)">7D</button>
+            <button class="atf-btn" data-days="30" onclick="setCardTimeframe(this)">30D</button>
+            <button class="atf-btn" data-days="90" onclick="setCardTimeframe(this)">90D</button>
+            <button class="atf-btn" data-days="365" onclick="setCardTimeframe(this)">1Y</button>
+            <button class="atf-btn" data-days="0" onclick="setCardTimeframe(this)">ALL</button>
+          </div>
+        </div>
+      </div>
+      <div id="card-chart-wrap" style="background:#1e293b;border-radius:16px;padding:20px;position:relative;min-height:260px;">
+        <canvas id="card-chart" height="220"></canvas>
+        <div id="card-chart-empty" style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;color:#475569;">
+          <div style="font-size:40px;margin-bottom:8px;">🃏</div>
+          <p style="font-size:14px;font-weight:600;margin:0 0 4px;">Select a card above</p>
+          <p style="font-size:12px;margin:0;">Pick a card from the dropdown to see its price history.</p>
+        </div>
+        <div id="card-chart-loading" class="hidden" style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:#64748b;font-size:13px;">
+          Loading…
+        </div>
+      </div>
+    </div>
+
+    <!-- Collection Value Table -->
+    <div style="margin-top:40px;">
+      <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;margin-bottom:12px;">
+        <div>
+          <h2 style="font-size:20px;font-weight:700;margin:0 0 4px;">My Collection</h2>
+          <p style="font-size:12px;color:#475569;margin:0;">💡 Pricing pulls from eBay, PSA APR, Heritage Auctions &amp; PWCC. Values update when a card is repriced — not in real-time.</p>
+        </div>
+        <div style="display:flex;align-items:center;gap:8px;">
+          <input id="analytics-table-search" type="text" placeholder="Search cards…" oninput="filterAnalyticsTable()" style="background:#1e293b;border:1px solid #334155;color:#f1f5f9;padding:7px 12px;border-radius:10px;font-size:13px;outline:none;width:200px;">
+          <select id="analytics-table-sort" onchange="sortAnalyticsTable()" style="background:#1e293b;border:1px solid #334155;color:#f1f5f9;padding:7px 12px;border-radius:10px;font-size:13px;outline:none;">
+            <option value="value-high">Value: High → Low</option>
+            <option value="value-low">Value: Low → High</option>
+            <option value="player-az">Player: A → Z</option>
+            <option value="year-new">Year: Newest</option>
+            <option value="year-old">Year: Oldest</option>
+          </select>
+        </div>
+      </div>
+      <div style="background:#1e293b;border-radius:16px;overflow:hidden;">
+        <div style="overflow-x:auto;">
+          <table id="analytics-card-table" style="width:100%;border-collapse:collapse;font-size:13px;">
+            <thead>
+              <tr style="border-bottom:2px solid #334155;background:#0f172a;">
+                <th style="padding:13px 16px;text-align:left;color:#94a3b8;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;white-space:nowrap;">Card</th>
+                <th style="padding:13px 16px;text-align:left;color:#94a3b8;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;white-space:nowrap;">Year / Set</th>
+                <th style="padding:13px 16px;text-align:center;color:#94a3b8;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;white-space:nowrap;">Graded</th>
+                <th style="padding:13px 16px;text-align:right;color:#94a3b8;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;white-space:nowrap;" title="Estimated value based on all pricing sources">Est. Value</th>
+                <th style="padding:13px 16px;text-align:right;color:#94a3b8;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;white-space:nowrap;" title="Pooled average across all sources: eBay, PSA APR, Heritage, PWCC">Market Avg</th>
+                <th style="padding:13px 16px;text-align:right;color:#94a3b8;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;white-space:nowrap;">Last Priced</th>
+                <th style="padding:13px 16px;text-align:center;color:#94a3b8;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;white-space:nowrap;">Chart</th>
+              </tr>
+            </thead>
+            <tbody id="analytics-card-tbody">
+              <tr><td colspan="7" style="padding:48px;text-align:center;color:#475569;font-size:13px;">Loading cards…</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <div id="analytics-table-footer" style="padding:10px 16px;border-top:1px solid #1e293b;font-size:12px;color:#475569;display:flex;justify-content:space-between;align-items:center;">
+          <span id="analytics-table-count"></span>
+          <span id="analytics-table-total"></span>
+        </div>
+      </div>
+    </div>
+
   </main>
 
   <!-- Detail Modal -->
@@ -887,6 +999,7 @@
             </div>
           </div>`;
         navMine.classList.remove('hidden');
+        document.getElementById('nav-analytics').classList.remove('hidden');
         document.getElementById('nav-pricing').classList.add('hidden');
         document.getElementById('feedback-widget').classList.remove('hidden');
         // Default to My Collection for signed-in users on first load
@@ -959,12 +1072,13 @@
           <a href="/register" class="inline-flex items-center gap-2 bg-green-600 hover:bg-green-500 text-white px-4 py-2 rounded-xl font-semibold text-sm transition-colors shadow-lg whitespace-nowrap">✨ Sign Up Free</a>
           <a href="/login" class="inline-flex items-center gap-2 bg-blue-600 hover:bg-blue-500 text-white px-4 py-2 rounded-xl font-semibold text-sm transition-colors whitespace-nowrap">Login</a>`;
         navMine.classList.add('hidden');
+        document.getElementById('nav-analytics').classList.add('hidden');
         document.getElementById('nav-pricing').classList.remove('hidden');
         banner.classList.add('hidden');
         document.getElementById('guest-banner').classList.remove('hidden');
         if (mineFilterActive) { mineFilterActive = false; }
-        // If user was on My Collection tab, switch back to Card Collection
-        if (currentView === 'mine') switchView('all');
+        // If user was on My Collection or Analytics tab, switch back to Card Collection
+        if (currentView === 'mine' || currentView === 'analytics') switchView('all');
       }
       // Refresh header stats whenever auth state changes
       refreshHeaderStats();
@@ -1018,7 +1132,7 @@
     }
 
     function switchView(view) {
-      if (view === 'mine' && !isLoggedIn) { window.location.href = '/login'; return; }
+      if ((view === 'mine' || view === 'analytics') && !isLoggedIn) { window.location.href = '/login'; return; }
       const showPack = (view === 'mine' && !packAnimShown);
       currentView = view;
       // Update tab styles
@@ -1026,17 +1140,19 @@
         t.classList.toggle('active', t.dataset.view === view);
       });
       // Toggle main panels
-      const cardsView   = document.getElementById('view-cards');
-      const howtoView   = document.getElementById('view-howto');
-      const infoView    = document.getElementById('view-info');
-      const pricingView = document.getElementById('view-pricing');
-      const searchBar   = document.getElementById('search-bar');
+      const cardsView     = document.getElementById('view-cards');
+      const howtoView     = document.getElementById('view-howto');
+      const infoView      = document.getElementById('view-info');
+      const pricingView   = document.getElementById('view-pricing');
+      const analyticsView = document.getElementById('view-analytics');
+      const searchBar     = document.getElementById('search-bar');
 
       // Hide everything first
       cardsView.classList.add('hidden');
       howtoView.classList.add('hidden');
       infoView.classList.add('hidden');
       pricingView.classList.add('hidden');
+      analyticsView.classList.add('hidden');
       searchBar.classList.add('hidden');
 
       if (view === 'howto') {
@@ -1048,6 +1164,10 @@
       } else if (view === 'pricing') {
         pricingView.classList.remove('hidden');
         window.scrollTo({ top: 0, behavior: 'smooth' });
+      } else if (view === 'analytics') {
+        analyticsView.classList.remove('hidden');
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+        loadAnalyticsView();
       } else {
         cardsView.classList.remove('hidden');
         searchBar.classList.remove('hidden');
@@ -1067,6 +1187,8 @@
       await fetch('/api/auth/logout', { method: 'POST' });
       isLoggedIn = false; isAdmin = false; currentUser = null;
       currentModalCardId = null;
+      _analyticsLoaded = false;
+      _analyticsCards = [];
       closeModalDirect();
       await checkAuth();
       switchView('all');
@@ -1074,6 +1196,370 @@
     }
 
     // (legacy toggleMineFilter removed — now handled via switchView)
+
+    // ── My Analytics ────────────────────────────────────────────────────────
+
+    let _portfolioChart = null;
+    let _cardChart      = null;
+    let _portfolioDays  = 7;
+    let _cardDays       = 7;
+    let _cardChartId    = null;
+    let _analyticsLoaded = false;
+    let _analyticsCards  = [];   // full card list for the table
+
+    async function loadAnalyticsView() {
+      // Populate card selector + table once per session load
+      if (!_analyticsLoaded) {
+        _analyticsLoaded = true;
+        await _populateCardSelector();
+      }
+      loadPortfolioChart(_portfolioDays);
+    }
+
+    function setPortfolioTimeframe(btn) {
+      document.querySelectorAll('#portfolio-timeframe-btns .atf-btn').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      _portfolioDays = parseInt(btn.dataset.days);
+      loadPortfolioChart(_portfolioDays);
+    }
+
+    function setCardTimeframe(btn) {
+      document.querySelectorAll('#card-timeframe-btns .atf-btn').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      _cardDays = parseInt(btn.dataset.days);
+      if (_cardChartId) loadCardChart(_cardChartId, _cardDays);
+    }
+
+    function onCardChartSelect() {
+      const sel = document.getElementById('card-chart-select');
+      _cardChartId = sel.value || null;
+      if (_cardChartId) {
+        loadCardChart(_cardChartId, _cardDays);
+      } else {
+        if (_cardChart) { _cardChart.destroy(); _cardChart = null; }
+        document.getElementById('card-chart-empty').classList.remove('hidden');
+        document.getElementById('card-chart').style.opacity = '0';
+      }
+    }
+
+    async function _populateCardSelector() {
+      const sel = document.getElementById('card-chart-select');
+      try {
+        const res = await fetch('/api/cards?owner=mine&limit=500');
+        if (!res.ok) return;
+        const data = await res.json();
+        const cards = data.cards || [];
+        _analyticsCards = cards;
+        cards.sort((a,b) => (a.player_name||'').localeCompare(b.player_name||''));
+        sel.innerHTML = '<option value="">Select a card…</option>';
+        cards.forEach(c => {
+          const label = [c.player_name, c.year, c.brand, c.set_name, c.card_number ? `#${c.card_number}` : '']
+            .filter(Boolean).join(' ');
+          const opt = document.createElement('option');
+          opt.value = c.id;
+          opt.textContent = label || c.id;
+          sel.appendChild(opt);
+        });
+        renderAnalyticsTable(_analyticsCards);
+      } catch(_) {}
+    }
+
+    function renderAnalyticsTable(cards) {
+      const tbody = document.getElementById('analytics-card-tbody');
+      const countEl = document.getElementById('analytics-table-count');
+      const totalEl = document.getElementById('analytics-table-total');
+
+      if (!cards.length) {
+        tbody.innerHTML = `<tr><td colspan="7" style="padding:48px 16px;text-align:center;">
+          <div style="font-size:36px;margin-bottom:10px;">🃏</div>
+          <p style="font-size:15px;font-weight:600;color:#64748b;margin:0 0 4px;">No cards yet</p>
+          <p style="font-size:12px;color:#475569;margin:0;">Scan or upload your first card to start tracking your collection.</p>
+        </td></tr>`;
+        countEl.textContent = '0 cards';
+        totalEl.textContent = '';
+        return;
+      }
+
+      const totalVal = cards.reduce((s, c) => s + (c.estimated_price || 0), 0);
+      countEl.textContent = `${cards.length} card${cards.length !== 1 ? 's' : ''}`;
+      totalEl.textContent = `Collection total: $${totalVal.toFixed(2)}`;
+
+      tbody.innerHTML = cards.map(c => {
+        const name    = c.player_name || '—';
+        const yearSet = [c.year, c.brand, c.set_name].filter(Boolean).join(' ');
+        const graded  = c.is_graded
+          ? `<span style="font-size:11px;background:#3b0764;color:#c084fc;padding:2px 8px;border-radius:999px;font-weight:600;">${c.grade || 'Graded'}</span>`
+          : `<span style="font-size:11px;color:#475569;">—</span>`;
+        const estVal  = c.estimated_price != null ? `<strong style="color:#f1f5f9;">$${c.estimated_price.toFixed(2)}</strong>` : '<span style="color:#475569;">—</span>';
+        const ebayAvg = c.ebay_avg_sale  != null ? `$${c.ebay_avg_sale.toFixed(2)}` : '<span style="color:#475569;">—</span>';
+        const lastPriced = c.ebay_last_checked
+          ? new Date(c.ebay_last_checked).toLocaleDateString('en-US', { month:'short', day:'numeric', year:'numeric' })
+          : '<span style="color:#475569;">Never</span>';
+        const cardNumBadge = c.card_number ? `<span style="font-size:10px;color:#64748b;margin-left:4px;">#${c.card_number}</span>` : '';
+        return `<tr style="border-bottom:1px solid #1e293b;transition:background .1s;" onmouseover="this.style.background='#0f172a'" onmouseout="this.style.background=''" onclick="openCardModal('${c.id}')" style="cursor:pointer;">
+          <td style="padding:11px 16px;white-space:nowrap;">
+            <span style="font-weight:600;color:#f1f5f9;">${name}</span>${cardNumBadge}
+          </td>
+          <td style="padding:11px 16px;color:#94a3b8;white-space:nowrap;">${yearSet || '—'}</td>
+          <td style="padding:11px 16px;text-align:center;">${graded}</td>
+          <td style="padding:11px 16px;text-align:right;">${estVal}</td>
+          <td style="padding:11px 16px;text-align:right;color:#94a3b8;">${ebayAvg}</td>
+          <td style="padding:11px 16px;text-align:right;color:#64748b;white-space:nowrap;">${lastPriced}</td>
+          <td style="padding:11px 16px;text-align:center;">
+            <button onclick="event.stopPropagation();document.getElementById('card-chart-select').value='${c.id}';onCardChartSelect();document.getElementById('card-chart-wrap').scrollIntoView({behavior:'smooth',block:'center'});"
+              style="background:#1e3a8a;border:none;color:#93c5fd;padding:4px 10px;border-radius:6px;font-size:11px;font-weight:600;cursor:pointer;">📈 View</button>
+          </td>
+        </tr>`;
+      }).join('');
+    }
+
+    function filterAnalyticsTable() {
+      const q = (document.getElementById('analytics-table-search').value || '').toLowerCase();
+      const filtered = _analyticsCards.filter(c =>
+        (c.player_name || '').toLowerCase().includes(q) ||
+        (c.brand || '').toLowerCase().includes(q) ||
+        (c.set_name || '').toLowerCase().includes(q) ||
+        (c.team || '').toLowerCase().includes(q) ||
+        (String(c.year || '')).includes(q)
+      );
+      _renderSorted(filtered);
+    }
+
+    function sortAnalyticsTable() {
+      const q = (document.getElementById('analytics-table-search').value || '').toLowerCase();
+      const filtered = _analyticsCards.filter(c =>
+        (c.player_name || '').toLowerCase().includes(q) ||
+        (c.brand || '').toLowerCase().includes(q) ||
+        (c.set_name || '').toLowerCase().includes(q) ||
+        (c.team || '').toLowerCase().includes(q) ||
+        (String(c.year || '')).includes(q)
+      );
+      _renderSorted(filtered);
+    }
+
+    function _renderSorted(cards) {
+      const sort = document.getElementById('analytics-table-sort').value;
+      const sorted = [...cards];
+      if (sort === 'value-high') sorted.sort((a,b) => (b.estimated_price||0) - (a.estimated_price||0));
+      else if (sort === 'value-low') sorted.sort((a,b) => (a.estimated_price||0) - (b.estimated_price||0));
+      else if (sort === 'player-az') sorted.sort((a,b) => (a.player_name||'').localeCompare(b.player_name||''));
+      else if (sort === 'year-new') sorted.sort((a,b) => (b.year||0) - (a.year||0));
+      else if (sort === 'year-old') sorted.sort((a,b) => (a.year||0) - (b.year||0));
+      renderAnalyticsTable(sorted);
+    }
+
+    async function loadPortfolioChart(days) {
+      const canvas   = document.getElementById('portfolio-chart');
+      const loading  = document.getElementById('portfolio-chart-loading');
+      const empty    = document.getElementById('portfolio-chart-empty');
+      const statEl   = document.getElementById('analytics-portfolio-stat');
+
+      loading.style.display = 'flex';
+      empty.classList.add('hidden');
+      canvas.style.opacity = '0';
+
+      try {
+        const url = days > 0
+          ? `/api/portfolio/value-history?days=${days}`
+          : `/api/portfolio/value-history?days=3650`;
+        const res = await fetch(url);
+        const data = res.ok ? await res.json() : [];
+        const history = Array.isArray(data) ? data : (data.history || []);
+
+        loading.style.display = 'none';
+
+        if (!history.length) {
+          empty.classList.remove('hidden');
+          return;
+        }
+
+        canvas.style.opacity = '1';
+        const labels = history.map(h => {
+          const d = new Date(h.date);
+          return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+        });
+        const values = history.map(h => h.total_value || 0);
+
+        // Stats
+        const latest = values[values.length - 1] || 0;
+        const earliest = values[0] || 0;
+        const change = latest - earliest;
+        const changePct = earliest > 0 ? ((change / earliest) * 100).toFixed(1) : null;
+        const changeStr = change >= 0 ? `+$${change.toFixed(2)}` : `-$${Math.abs(change).toFixed(2)}`;
+        const changeColor = change >= 0 ? '#22c55e' : '#ef4444';
+        statEl.innerHTML = `Total: <strong style="color:#f1f5f9;">$${latest.toFixed(2)}</strong>&nbsp;&nbsp;
+          <span style="color:${changeColor};">${changeStr}${changePct !== null ? ` (${changePct}%)` : ''}</span>
+          <span style="color:#475569;"> over period</span>`;
+
+        if (_portfolioChart) { _portfolioChart.destroy(); _portfolioChart = null; }
+        _portfolioChart = new Chart(canvas.getContext('2d'), {
+          type: 'line',
+          data: {
+            labels,
+            datasets: [{
+              label: 'Portfolio Value ($)',
+              data: values,
+              borderColor: '#3b82f6',
+              backgroundColor: 'rgba(59,130,246,0.12)',
+              fill: true,
+              tension: 0.35,
+              pointRadius: values.length < 20 ? 4 : 2,
+              pointHoverRadius: 6,
+              borderWidth: 2.5,
+            }]
+          },
+          options: {
+            responsive: true,
+            maintainAspectRatio: true,
+            interaction: { mode: 'index', intersect: false },
+            plugins: {
+              legend: { display: false },
+              tooltip: {
+                backgroundColor: '#1e293b',
+                borderColor: '#334155',
+                borderWidth: 1,
+                titleColor: '#94a3b8',
+                bodyColor: '#f1f5f9',
+                callbacks: {
+                  label: ctx => ` $${ctx.parsed.y.toFixed(2)}`
+                }
+              }
+            },
+            scales: {
+              x: {
+                grid: { color: 'rgba(51,65,85,0.5)' },
+                ticks: { color: '#64748b', font: { size: 11 }, maxTicksLimit: 10 }
+              },
+              y: {
+                grid: { color: 'rgba(51,65,85,0.5)' },
+                ticks: {
+                  color: '#64748b',
+                  font: { size: 11 },
+                  callback: v => '$' + v.toFixed(0)
+                },
+                beginAtZero: false
+              }
+            }
+          }
+        });
+      } catch(e) {
+        loading.style.display = 'none';
+        empty.classList.remove('hidden');
+      }
+    }
+
+    async function loadCardChart(cardId, days) {
+      const canvas  = document.getElementById('card-chart');
+      const loading = document.getElementById('card-chart-loading');
+      const empty   = document.getElementById('card-chart-empty');
+
+      loading.classList.remove('hidden');
+      empty.classList.add('hidden');
+      canvas.style.opacity = '0';
+
+      try {
+        const url = days > 0
+          ? `/api/cards/${cardId}/price-history?days=${days}`
+          : `/api/cards/${cardId}/price-history?days=3650`;
+        const res = await fetch(url);
+        const data = res.ok ? await res.json() : [];
+        const history = Array.isArray(data) ? data : (data.history || []);
+
+        loading.classList.add('hidden');
+
+        if (!history.length) {
+          empty.querySelector('p:first-of-type').textContent = 'No price history yet';
+          empty.querySelector('p:last-of-type').textContent = 'Reprice this card to start tracking its value over time.';
+          empty.classList.remove('hidden');
+          return;
+        }
+
+        canvas.style.opacity = '1';
+        const labels = history.map(h => {
+          const d = new Date(h.date || h.checked_at);
+          return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+        });
+        const rawVals    = history.map(h => h.raw_avg);
+        const gradedVals = history.map(h => h.graded_avg);
+        const haGraded   = gradedVals.some(v => v !== null && v !== undefined);
+
+        const datasets = [{
+          label: 'Raw / Ungraded Avg ($)',
+          data: rawVals,
+          borderColor: '#3b82f6',
+          backgroundColor: 'rgba(59,130,246,0.1)',
+          fill: true,
+          tension: 0.35,
+          pointRadius: rawVals.length < 20 ? 4 : 2,
+          pointHoverRadius: 6,
+          borderWidth: 2.5,
+          spanGaps: true,
+        }];
+
+        if (haGraded) {
+          datasets.push({
+            label: 'Graded Avg ($)',
+            data: gradedVals,
+            borderColor: '#a855f7',
+            backgroundColor: 'rgba(168,85,247,0.08)',
+            fill: false,
+            tension: 0.35,
+            pointRadius: gradedVals.length < 20 ? 4 : 2,
+            pointHoverRadius: 6,
+            borderWidth: 2,
+            borderDash: [4, 3],
+            spanGaps: true,
+          });
+        }
+
+        if (_cardChart) { _cardChart.destroy(); _cardChart = null; }
+        _cardChart = new Chart(canvas.getContext('2d'), {
+          type: 'line',
+          data: { labels, datasets },
+          options: {
+            responsive: true,
+            maintainAspectRatio: true,
+            interaction: { mode: 'index', intersect: false },
+            plugins: {
+              legend: {
+                display: haGraded,
+                labels: { color: '#94a3b8', font: { size: 11 } }
+              },
+              tooltip: {
+                backgroundColor: '#1e293b',
+                borderColor: '#334155',
+                borderWidth: 1,
+                titleColor: '#94a3b8',
+                bodyColor: '#f1f5f9',
+                callbacks: {
+                  label: ctx => ctx.parsed.y !== null
+                    ? ` ${ctx.dataset.label}: $${ctx.parsed.y.toFixed(2)}`
+                    : null
+                }
+              }
+            },
+            scales: {
+              x: {
+                grid: { color: 'rgba(51,65,85,0.5)' },
+                ticks: { color: '#64748b', font: { size: 11 }, maxTicksLimit: 10 }
+              },
+              y: {
+                grid: { color: 'rgba(51,65,85,0.5)' },
+                ticks: {
+                  color: '#64748b',
+                  font: { size: 11 },
+                  callback: v => '$' + v.toFixed(2)
+                },
+                beginAtZero: false
+              }
+            }
+          }
+        });
+      } catch(e) {
+        loading.classList.add('hidden');
+        empty.classList.remove('hidden');
+      }
+    }
 
     // ── Admin: User Management ──────────────────────────────────────────────
     async function openUsersModal() {

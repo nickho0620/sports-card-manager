@@ -1903,7 +1903,7 @@ def get_card(card_id: str):
 def get_price_history(
     request: Request,
     card_id: str,
-    days: int = Query(default=90, le=365),
+    days: int = Query(default=90, le=3650),
 ):
     """
     Return price history snapshots for a card — used to power price-over-time
@@ -1961,7 +1961,7 @@ def get_price_history(
 @app.get("/api/portfolio/value-history")
 def get_portfolio_value_history(
     request: Request,
-    days: int = Query(default=90, le=365),
+    days: int = Query(default=90, le=3650),
 ):
     """
     Aggregate daily portfolio value across all of the user's cards.
