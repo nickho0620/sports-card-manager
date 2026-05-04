@@ -2015,6 +2015,56 @@ def get_portfolio_value_history(
         db.close()
 
 
+@app.get("/api/portfolio/price-changes")
+def get_portfolio_price_changes(request: Request):
+    """
+    For each of the user's cards return the two most recent raw_avg price
+    history entries so the frontend can show % change since last reprice.
+    Single query — efficient for large collections.
+    """
+    user = require_auth(request)
+    db = SessionLocal()
+    try:
+        card_ids = [
+            c.id for c in db.query(Card.id).filter(Card.owner_id == user.id).all()
+        ]
+        if not card_ids:
+            return {}
+
+        # Fetch all history rows for user's cards, newest first
+        rows = (
+            db.query(PriceHistory)
+            .filter(PriceHistory.card_id.in_(card_ids))
+            .order_by(PriceHistory.checked_at.desc())
+            .all()
+        )
+
+        # Keep last 2 per card
+        by_card: dict[str, list] = {}
+        for r in rows:
+            if r.card_id not in by_card:
+                by_card[r.card_id] = []
+            if len(by_card[r.card_id]) < 2:
+                by_card[r.card_id].append(r)
+
+        result = {}
+        for card_id, entries in by_card.items():
+            current_avg = entries[0].raw_avg if entries else None
+            prev_avg    = entries[1].raw_avg if len(entries) > 1 else None
+            if prev_avg and prev_avg > 0 and current_avg is not None:
+                pct = round(((current_avg - prev_avg) / prev_avg) * 100, 1)
+            else:
+                pct = None
+            result[card_id] = {
+                "current_avg": current_avg,
+                "prev_avg": prev_avg,
+                "pct_change": pct,
+            }
+        return result
+    finally:
+        db.close()
+
+
 @app.post("/api/cards/{card_id}/image/{side}")
 async def update_card_image(
     request: Request,

@@ -763,12 +763,14 @@
                 <th style="padding:13px 16px;text-align:center;color:#94a3b8;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;white-space:nowrap;">Graded</th>
                 <th style="padding:13px 16px;text-align:right;color:#94a3b8;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;white-space:nowrap;" title="Estimated value based on all pricing sources">Est. Value</th>
                 <th style="padding:13px 16px;text-align:right;color:#94a3b8;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;white-space:nowrap;" title="Pooled average across all sources: eBay, PSA APR, Heritage, PWCC">Market Avg</th>
+                <th style="padding:13px 16px;text-align:right;color:#94a3b8;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;white-space:nowrap;" title="% change from previous reprice to current">% Change</th>
                 <th style="padding:13px 16px;text-align:right;color:#94a3b8;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;white-space:nowrap;">Last Priced</th>
                 <th style="padding:13px 16px;text-align:center;color:#94a3b8;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;white-space:nowrap;">Chart</th>
+                <th style="padding:13px 16px;text-align:center;color:#94a3b8;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;white-space:nowrap;">Reprice</th>
               </tr>
             </thead>
             <tbody id="analytics-card-tbody">
-              <tr><td colspan="7" style="padding:48px;text-align:center;color:#475569;font-size:13px;">Loading cards…</td></tr>
+              <tr><td colspan="9" style="padding:48px;text-align:center;color:#475569;font-size:13px;">Loading cards…</td></tr>
             </tbody>
           </table>
         </div>
@@ -1211,6 +1213,43 @@
 
     // (legacy toggleMineFilter removed — now handled via switchView)
 
+    // ── Reprice from Analytics Table ────────────────────────────────────────
+    async function repriceFromTable(cardId, btn) {
+      btn.disabled = true;
+      btn.textContent = '…';
+      try {
+        const res = await fetch(`/api/cards/${cardId}/reprice`, { method: 'POST' });
+        const data = await res.json();
+        if (!res.ok) {
+          btn.textContent = '🔄 Reprice';
+          btn.disabled = false;
+          alert(data.detail || 'Failed to reprice.');
+          return;
+        }
+        btn.textContent = '✓ Queued';
+        btn.style.background = '#14532d';
+        btn.style.color = '#86efac';
+        // After a delay re-fetch price changes to update % change column
+        setTimeout(async () => {
+          btn.textContent = '🔄 Reprice';
+          btn.style.background = '#164e63';
+          btn.style.color = '#67e8f9';
+          btn.disabled = false;
+          // Refresh price changes
+          try {
+            const cr = await fetch('/api/portfolio/price-changes');
+            if (cr.ok) {
+              _priceChanges = await cr.json();
+              _renderSorted(_analyticsCards);
+            }
+          } catch(_) {}
+        }, 5000);
+      } catch {
+        btn.textContent = '🔄 Reprice';
+        btn.disabled = false;
+      }
+    }
+
     // ── Reprice All (Unlimited) ──────────────────────────────────────────────
     async function repriceAllCards() {
       const btn = document.getElementById('reprice-all-btn');
@@ -1248,6 +1287,7 @@
     let _cardChartId    = null;
     let _analyticsLoaded = false;
     let _analyticsCards  = [];   // full card list for the table
+    let _priceChanges    = {};   // card_id -> {current_avg, prev_avg, pct_change}
 
     async function loadAnalyticsView() {
       // Populate card selector + table once per session load
@@ -1287,9 +1327,12 @@
     async function _populateCardSelector() {
       const sel = document.getElementById('card-chart-select');
       try {
-        const res = await fetch('/api/cards?owner=mine&limit=1000');
-        if (!res.ok) return;
-        const data = await res.json();
+        const [cardsRes, changesRes] = await Promise.all([
+          fetch('/api/cards?owner=mine&limit=1000'),
+          fetch('/api/portfolio/price-changes'),
+        ]);
+        const data = cardsRes.ok ? await cardsRes.json() : {};
+        _priceChanges = changesRes.ok ? await changesRes.json() : {};
         const cards = data.cards || [];
         _analyticsCards = cards;
         cards.sort((a,b) => (a.player_name||'').localeCompare(b.player_name||''));
@@ -1312,7 +1355,7 @@
       const totalEl = document.getElementById('analytics-table-total');
 
       if (!cards.length) {
-        tbody.innerHTML = `<tr><td colspan="7" style="padding:48px 16px;text-align:center;">
+        tbody.innerHTML = `<tr><td colspan="9" style="padding:48px 16px;text-align:center;">
           <div style="font-size:36px;margin-bottom:10px;">🃏</div>
           <p style="font-size:15px;font-weight:600;color:#64748b;margin:0 0 4px;">No cards yet</p>
           <p style="font-size:12px;color:#475569;margin:0;">Scan or upload your first card to start tracking your collection.</p>
@@ -1333,23 +1376,41 @@
           ? `<span style="font-size:11px;background:#3b0764;color:#c084fc;padding:2px 8px;border-radius:999px;font-weight:600;">${c.grade || 'Graded'}</span>`
           : `<span style="font-size:11px;color:#475569;">—</span>`;
         const estVal  = c.estimated_price != null ? `<strong style="color:#f1f5f9;">$${c.estimated_price.toFixed(2)}</strong>` : '<span style="color:#475569;">—</span>';
-        const ebayAvg = c.ebay_avg_sale  != null ? `$${c.ebay_avg_sale.toFixed(2)}` : '<span style="color:#475569;">—</span>';
+        const marketAvg = c.ebay_avg_sale != null ? `$${c.ebay_avg_sale.toFixed(2)}` : '<span style="color:#475569;">—</span>';
+
+        // % Change from price history
+        const pc = _priceChanges[c.id];
+        let pctHtml = '<span style="color:#475569;">—</span>';
+        if (pc && pc.pct_change !== null && pc.pct_change !== undefined) {
+          const pct = pc.pct_change;
+          const color = pct > 0 ? '#22c55e' : pct < 0 ? '#ef4444' : '#94a3b8';
+          const arrow = pct > 0 ? '▲' : pct < 0 ? '▼' : '●';
+          pctHtml = `<span style="color:${color};font-weight:600;">${arrow} ${Math.abs(pct).toFixed(1)}%</span>`;
+        } else if (pc && pc.prev_avg === null) {
+          pctHtml = '<span style="font-size:11px;color:#475569;">First price</span>';
+        }
+
         const lastPriced = c.ebay_last_checked
           ? new Date(c.ebay_last_checked).toLocaleDateString('en-US', { month:'short', day:'numeric', year:'numeric' })
           : '<span style="color:#475569;">Never</span>';
         const cardNumBadge = c.card_number ? `<span style="font-size:10px;color:#64748b;margin-left:4px;">#${c.card_number}</span>` : '';
-        return `<tr style="border-bottom:1px solid #1e293b;transition:background .1s;" onmouseover="this.style.background='#0f172a'" onmouseout="this.style.background=''" onclick="openCardModal('${c.id}')" style="cursor:pointer;">
+        return `<tr id="atrow-${c.id}" style="border-bottom:1px solid #1e293b;transition:background .1s;cursor:pointer;" onmouseover="this.style.background='#0f172a'" onmouseout="this.style.background=''" onclick="openCardModal('${c.id}')">
           <td style="padding:11px 16px;white-space:nowrap;">
             <span style="font-weight:600;color:#f1f5f9;">${name}</span>${cardNumBadge}
           </td>
           <td style="padding:11px 16px;color:#94a3b8;white-space:nowrap;">${yearSet || '—'}</td>
           <td style="padding:11px 16px;text-align:center;">${graded}</td>
           <td style="padding:11px 16px;text-align:right;">${estVal}</td>
-          <td style="padding:11px 16px;text-align:right;color:#94a3b8;">${ebayAvg}</td>
+          <td style="padding:11px 16px;text-align:right;color:#94a3b8;">${marketAvg}</td>
+          <td style="padding:11px 16px;text-align:right;">${pctHtml}</td>
           <td style="padding:11px 16px;text-align:right;color:#64748b;white-space:nowrap;">${lastPriced}</td>
           <td style="padding:11px 16px;text-align:center;">
             <button onclick="event.stopPropagation();document.getElementById('card-chart-select').value='${c.id}';onCardChartSelect();document.getElementById('card-chart-wrap').scrollIntoView({behavior:'smooth',block:'center'});"
               style="background:#1e3a8a;border:none;color:#93c5fd;padding:4px 10px;border-radius:6px;font-size:11px;font-weight:600;cursor:pointer;">📈 View</button>
+          </td>
+          <td style="padding:11px 16px;text-align:center;">
+            <button onclick="event.stopPropagation();repriceFromTable('${c.id}', this)"
+              style="background:#164e63;border:none;color:#67e8f9;padding:4px 10px;border-radius:6px;font-size:11px;font-weight:600;cursor:pointer;">🔄 Reprice</button>
           </td>
         </tr>`;
       }).join('');
