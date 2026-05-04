@@ -120,7 +120,7 @@ def build_search_url(query: str) -> str:
     return (
         f"https://www.ebay.com/sch/i.html"
         f"?_nkw={quote_plus(query)}"
-        f"&LH_Sold=1&LH_Complete=1&_sop=13"
+        f"&LH_Sold=1&LH_Complete=1&_sop=12"  # _sop=12 = most recently sold first
     )
 
 
@@ -194,16 +194,34 @@ def _classify_listing(title: str, card) -> str:
     return "graded" if is_graded_listing else "raw"
 
 
+MIN_PRICES_REQUIRED = 3   # require at least this many sales before trusting a result
+
 def _calc_stats(prices: list[float]) -> dict:
-    """Calculate price statistics from a list of prices."""
-    if not prices:
+    """Calculate price statistics from a list of prices.
+
+    Uses IQR-based outlier removal (Tukey fences) so that a single expensive
+    graded card or a dirt-cheap lot listing can't swing the average.
+    Requires at least MIN_PRICES_REQUIRED data points to return a result.
+    """
+    if len(prices) < MIN_PRICES_REQUIRED:
         return {}
-    # Remove outliers: drop prices more than 3x the median
-    if len(prices) >= 5:
-        med = statistics.median(prices)
-        prices = [p for p in prices if p <= med * 3]
-    if not prices:
+
+    prices = sorted(prices)
+
+    # IQR outlier removal — works on any sample size
+    if len(prices) >= 4:
+        q1 = statistics.median(prices[:len(prices) // 2])
+        q3 = statistics.median(prices[(len(prices) + 1) // 2:])
+        iqr = q3 - q1
+        if iqr > 0:
+            low_fence  = q1 - 1.5 * iqr
+            high_fence = q3 + 1.5 * iqr
+            prices = [p for p in prices if low_fence <= p <= high_fence]
+
+    # After filtering still need minimum count
+    if len(prices) < MIN_PRICES_REQUIRED:
         return {}
+
     return {
         "avg": round(statistics.mean(prices), 2),
         "median": round(statistics.median(prices), 2),
@@ -370,6 +388,7 @@ def _get_ebay_scrape_pricing(card, max_results: int = 25) -> dict | None:
 
     raw_stats = _calc_stats(raw_prices)
     if not raw_stats:
+        # Not enough clean sold listings found — fall through to next source
         return None
 
     result = {
